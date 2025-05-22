@@ -7,6 +7,8 @@ import random
 from collections import deque
 import os
 
+
+## 格式還沒檢查
 class ReplayBuffer:
     def __init__(self, capacity, device):
         self.buffer = deque(maxlen=capacity)
@@ -28,8 +30,7 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-
-# 用來 encode task seq 的資訊
+# 用來 encode task seq 的資訊，這兩個block要檢查reward size 形式，其他都ok
 class Encoder(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
         super().__init__()
@@ -39,10 +40,11 @@ class Encoder(nn.Module):
             nn.Linear(hidden_dim, latent_dim),
             nn.ReLU(),
         )
-    def forward(self, s, a, r, s_next):
-        x = torch.cat([s, a, r.unsqueeze(-1), s_next], dim=-1)
-        e_t = self.net(x)
-        return e_t
+    def forward(self, state, action, reward, next_state):
+        # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
+        x = torch.cat([state, action, reward.unsqueeze(-1), next_state], dim=-1)
+        embedding = self.net(x)
+        return embedding
 
 class Decoder(nn.Module):
     def __init__(self, latent_dim, hidden_dim, recon_dim):
@@ -52,8 +54,8 @@ class Decoder(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, recon_dim),
         )
-    def forward(self, e_t):
-        return self.net(e_t)      # e.g. predict next-state or reconstruct input
+    def forward(self, embedding):
+        return self.net(embedding)
 
 
 ## 這邊會輸出的是 actor and critic 的係數
@@ -145,11 +147,12 @@ class Critic(nn.Module):
         return self.q1(x), self.q2(x)
 
 class Agent:
-    def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, state_dim, action_dim, hidden_dim, latent_dim, action_scale, log_std_min, log_std_max, gamma, tau, alpha, device):
+        self.device = device
         self.encoder = Encoder(state_dim, action_dim, hidden_dim, latent_dim).to(self.device)
         self.decoder = Decoder(latent_dim, hidden_dim, state_dim + action_dim + 1 + state_dim).to(self.device)
-        self.actor = Actor(state_dim, hidden_dim, action_dim).to(self.device)
+
+        self.actor = Actor(state_dim, action_dim, hidden_dim, log_std_min, log_std_max, action_scale).to(self.device)
         self.critic = Critic(state_dim, action_dim, hidden_dim).to(self.device)
         self.critic_target = Critic(state_dim, action_dim, hidden_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -158,17 +161,17 @@ class Agent:
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
 
-        self.gamma = 0.99
-        self.tau = 0.005
-        self.alpha = 0.2
+        self.gamma = gamma
+        self.tau = tau
+        self.alpha = alpha
 
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
 
     def select_action(self, state, deterministic=False):
-        e_t = self.encoder(state)
-        e_t = e_t.detach()
-        actor_params, _ = self.hypernet(e_t)
+        embedding = self.encoder(state)
+        embedding = embedding.detach()
+        actor_params, _ = self.hypernet(embedding)
         vector_to_parameters(actor_params, self.actor.parameters())
         
         if deterministic:
@@ -187,12 +190,12 @@ class Agent:
         dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
         # 1) Encoder + Decoder
-        e_t = self.encoder(states, actions, rewards, next_states)
-        recon = self.decoder(e_t)
+        embedding = self.encoder(states, actions, rewards, next_states)
+        recon = self.decoder(embedding)
         L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards.unsqueeze(-1), next_states], dim=-1))
 
-        # 3) Hypernetwork → flat θ’s
-        actor_params, critic_params = self.hypernet(e_t)
+        # 3) Hypernetwork
+        actor_params, critic_params = self.hypernet(embedding)
         vector_to_parameters(actor_params, self.actor.parameters())
         vector_to_parameters(critic_params, self.critic.parameters())
 
@@ -219,6 +222,7 @@ class Agent:
         sac_loss = critic_loss + policy_loss
         
         return sac_loss, L_recon    
+    
     def save(self, save_dir, episode):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
