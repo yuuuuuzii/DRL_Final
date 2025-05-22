@@ -8,9 +8,12 @@ import gymnasium as gym
 from utils import ReplayBuffer, Agent
 from torch.nn.utils import vector_to_parameters
 from collections import deque
-
-def make_env():
-    pass
+import ipdb
+def make_env(task_id=None):
+    env = gym.make("HalfCheetah-v4")
+    if task_id is not None:
+        env.unwrapped._goal_velocity = task_id * 0.2
+    return env
 
 def main():
     env = make_env()
@@ -27,12 +30,15 @@ def main():
     lr = 3e-4
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    replay_buffer = ReplayBuffer(1_000_000, device=device)
+    replay_buffer = ReplayBuffer(1e6, device=device)
+
+
     agent = Agent(state_dim, action_dim, hidden_dim, latent_dim, action_scale, log_std_min, log_std_max, gamma, tau, alpha, device)
     optimizer = optim.Adam(list(agent.encoder.parameters()) +
                            list(agent.decoder.parameters()) +
                            list(agent.hypernet.parameters()),
                            lr=lr)
+    
     num_episodes = 1000
     max_timesteps = 1000
     batch_size = 256
@@ -84,4 +90,8 @@ def main():
             print(f"Episode {episode}: Loss: {total_loss.item():.2f}, Recon Loss: {enc_dec_loss.item():.2f}, SAC Loss: {sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
         
         if episode % 500 == 0:
-            agent.save_model("checkpoints/", episode)
+            agent.save("checkpoints/", episode)
+
+if __name__== '__main__':
+    main()
+    print("hi")

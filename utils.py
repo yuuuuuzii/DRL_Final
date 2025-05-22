@@ -8,9 +8,12 @@ from collections import deque
 import os
 
 class ReplayBuffer:
-    def __init__(self, capacity):
+    def __init__(self, capacity, device):
         self.buffer = deque(maxlen=capacity)
+        self.device = device
+        print("device:", self.device)
 
+    # 等等檢查這邊格式，現在不做任何處理
     def push(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
 
@@ -25,7 +28,8 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-# 1) Encoder E: s,a,r,s′ → e_t
+
+# 用來 encode task seq 的資訊
 class Encoder(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
         super().__init__()
@@ -40,7 +44,6 @@ class Encoder(nn.Module):
         e_t = self.net(x)
         return e_t
 
-# 2) Decoder D: e_t → s,a,r,s′
 class Decoder(nn.Module):
     def __init__(self, latent_dim, hidden_dim, recon_dim):
         super().__init__()
@@ -52,23 +55,35 @@ class Decoder(nn.Module):
     def forward(self, e_t):
         return self.net(e_t)      # e.g. predict next-state or reconstruct input
 
-# 3) Hypernetwork h_ψ: e_t → {θ_dyn, θ_actor, θ_critic}
+
+## 這邊會輸出的是 actor and critic 的係數
 class HyperNetwork(nn.Module):
     def __init__(self, latent_dim, actor_param_size, critic_param_size):
         super().__init__()
-        # one shared trunk…
+        HIDDEN_STATE = 512
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, latent_dim),
             nn.ReLU(),
         )
-        # …then two “heads” that each output a flat parameter vector
-        self.head_actor  = nn.Linear(latent_dim, actor_param_size)
-        self.head_critic = nn.Linear(latent_dim, critic_param_size)
-
-    def forward(self, e_t):
-        h = self.trunk(e_t)
-        actor  = self.head_actor(h)
-        critic = self.head_critic(h)
+        self.head_actor  = nn.Sequential(
+            nn.Linear(latent_dim, HIDDEN_STATE), 
+            nn.ReLU(),
+            nn.Linear(HIDDEN_STATE, HIDDEN_STATE), 
+            nn.ReLU(),
+            nn.Linear(HIDDEN_STATE, actor_param_size)
+        )
+        self.head_critic  = nn.Sequential(
+            nn.Linear(latent_dim, HIDDEN_STATE),
+            nn.ReLU(),
+            nn.Linear(HIDDEN_STATE, HIDDEN_STATE), 
+            nn.ReLU(),
+            nn.Linear(HIDDEN_STATE, critic_param_size)
+        )
+    ## 這邊吃encoder task後產生的embedding
+    def forward(self, embedding):
+        hidden = self.trunk(embedding)
+        actor  = self.head_actor(hidden)
+        critic = self.head_critic(hidden)
         return actor, critic
 
 # 5) Actor & Critic networks similarly parameterized
