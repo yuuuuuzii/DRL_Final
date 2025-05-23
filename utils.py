@@ -160,7 +160,8 @@ class Agent:
         self.hypernet = HyperNetwork(latent_dim, 
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
-
+        self.memory = deque(maxlen=10)
+        self.replay_buffer = ReplayBuffer(1000000, device=device)
         self.gamma = gamma
         self.tau = tau
         self.alpha = alpha
@@ -168,8 +169,10 @@ class Agent:
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
 
-    def select_action(self, state, deterministic=False):
-        embedding = self.encoder(state)
+    def select_action(self, state, actions, rewards, next_states, deterministic=False):
+        self.memory.append((states, actions, rewards, next_states))
+        
+        embedding = self.encoder()
         embedding = embedding.detach()
         actor_params, _ = self.hypernet(embedding)
         vector_to_parameters(actor_params, self.actor.parameters())
@@ -223,6 +226,7 @@ class Agent:
         
         return sac_loss, L_recon    
     
+
     def save(self, save_dir, episode):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)

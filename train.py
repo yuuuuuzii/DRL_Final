@@ -30,7 +30,6 @@ def main():
     lr = 3e-4
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    replay_buffer = ReplayBuffer(1000000, device=device)
 
     agent = Agent(state_dim, action_dim, hidden_dim, latent_dim, action_scale, log_std_min, log_std_max, gamma, tau, alpha, device)
 
@@ -51,18 +50,20 @@ def main():
         for episode in tqdm(range(num_episodes)):
             state, _ = env.reset()
             episode_reward = 0
+
             for t in range(max_timesteps):
                 if t < 100:
                     action = env.action_space.sample()
                 else:
                     action = agent.select_action(state)
+
                 next_state, reward, done, truncated, _ = env.step(action)
-                replay_buffer.push(state, action, reward, next_state, done or truncated)
+                agent.replay_buffer.push(state, action, reward, next_state, done or truncated)
                 state = next_state
                 episode_reward += reward
 
-                if len(replay_buffer) > batch_size:
-                    sac_loss, enc_dec_loss = agent.update_actor_critic(replay_buffer, batch_size)
+                if len(agent.replay_buffer) > batch_size:
+                    sac_loss, enc_dec_loss = agent.update_actor_critic(agent.replay_buffer, batch_size)
                 
                     total_sac_loss += sac_loss
                     total_enc_dec_loss += enc_dec_loss
@@ -89,7 +90,7 @@ def main():
             optimizer_hyper.step()
         
         # limit the access to the past experiences
-        replay_buffer.clear()
+        agent.replay_buffer.clear()
 
         rewards_per_episode.append(episode_reward)
         if episode % 100 == 0:
