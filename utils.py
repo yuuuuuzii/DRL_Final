@@ -42,7 +42,10 @@ class Encoder(nn.Module):
         )
     def forward(self, state, action, reward, next_state):
         # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
-        x = torch.cat([state, action, reward.unsqueeze(-1), next_state], dim=-1)
+        # decide whether to unsqueeze reward
+        if reward.ndim == 1:
+            reward = reward.unsqueeze(-1)
+        x = torch.cat([state, action, reward, next_state], dim=-1)
         embedding = self.net(x)
         return embedding
 
@@ -121,7 +124,7 @@ class Actor(nn.Module):
         # Enforce action bounds
         action = torch.clamp(action, -self.action_scale, self.action_scale)
         log_prob = normal.log_prob(x_t) - torch.log(1 - action.pow(2) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
+        log_prob = log_prob.sum(-1, keepdim=True)
         return action, log_prob
 
 
@@ -157,6 +160,8 @@ class Agent:
         self.critic_target = Critic(state_dim, action_dim, hidden_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_target.eval()
+        print("actor params:", self.count_params(self.actor))
+        print("critic params:", self.count_params(self.critic))
         self.hypernet = HyperNetwork(latent_dim, 
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
@@ -169,20 +174,30 @@ class Agent:
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
 
-    def select_action(self, state, actions, rewards, next_states, deterministic=False):
-        self.memory.append((states, actions, rewards, next_states))
-        
-        embedding = self.encoder()
-        embedding = embedding.detach()
+    def select_action(self, state, action, reward, next_state, deterministic=False):
+        state = torch.FloatTensor(state).to(self.device)
+        action = torch.FloatTensor(action).to(self.device)
+        # reward = torch.FloatTensor(reward) 
+        next_state = torch.FloatTensor(next_state)
+        self.memory.append((state, action, reward, next_state))
+        states, actions, rewards, next_states = zip(*self.memory) 
+        states = torch.stack(states).to(self.device)
+        actions = torch.stack(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.stack(next_states).to(self.device)
+        embeddings = self.encoder(states, actions, rewards, next_states)
+        embeddings = embeddings.detach()
+        # print(embeddings.shape)
+        embedding = torch.mean(embeddings, dim=0)
         actor_params, _ = self.hypernet(embedding)
         vector_to_parameters(actor_params, self.actor.parameters())
         
         if deterministic:
             mu, _ = self.actor(state)
-            return mu
+            return mu.cpu().detach().numpy()
         else:
             action, _ = self.actor.sample(state)
-            return action
+            return action.cpu().detach().numpy()
     
     def update_actor_critic(self, replay_buffer, batch_size=256):
         states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size)
@@ -195,10 +210,16 @@ class Agent:
         # 1) Encoder + Decoder
         embedding = self.encoder(states, actions, rewards, next_states)
         recon = self.decoder(embedding)
-        L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards.unsqueeze(-1), next_states], dim=-1))
+        if rewards.ndim == 1:
+            rewards = rewards.unsqueeze(-1)
+        L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards, next_states], dim=-1))
 
         # 3) Hypernetwork
         actor_params, critic_params = self.hypernet(embedding)
+        # print("actor params:", actor_params.shape)
+        # print("critic params:", critic_params.shape)
+        actor_params = torch.mean(actor_params, dim=0)
+        critic_params = torch.mean(critic_params, dim=0)
         vector_to_parameters(actor_params, self.actor.parameters())
         vector_to_parameters(critic_params, self.critic.parameters())
 

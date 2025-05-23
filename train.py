@@ -1,14 +1,11 @@
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import torch.nn.functional as F
 from tqdm import tqdm
 import gymnasium as gym
-from utils import ReplayBuffer, Agent
-from torch.nn.utils import vector_to_parameters
+from utils import Agent
 from collections import deque
-import ipdb
+# import ipdb
 def make_env(task_id=None):
     env = gym.make("HalfCheetah-v4")
     if task_id is not None:
@@ -55,7 +52,7 @@ def main():
                 if t < 100:
                     action = env.action_space.sample()
                 else:
-                    action = agent.select_action(state)
+                    action = agent.select_action(state, action, reward, next_state)
 
                 next_state, reward, done, truncated, _ = env.step(action)
                 agent.replay_buffer.push(state, action, reward, next_state, done or truncated)
@@ -82,11 +79,12 @@ def main():
             # episodic update
             total_loss = total_enc_dec_loss + total_sac_loss
             optimizer_encoder.zero_grad()
-            total_enc_dec_loss.backward()
+            torch.autograd.set_detect_anomaly(True)
+            total_enc_dec_loss.backward(retain_graph=True)
             optimizer_encoder.step()
 
             optimizer_hyper.zero_grad()
-            total_sac_loss.backward()
+            total_sac_loss.backward(retain_graph=True)
             optimizer_hyper.step()
         
         # limit the access to the past experiences
