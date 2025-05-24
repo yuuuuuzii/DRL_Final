@@ -6,7 +6,7 @@ import numpy as np
 import random
 from collections import deque
 import os
-
+import ipdb
 
 ## 格式還沒檢查
 class ReplayBuffer:
@@ -197,22 +197,24 @@ class Agent:
             return mu.cpu().detach().numpy()
         else:
             action, _ = self.actor.sample(state)
+            
             return action.cpu().detach().numpy()
     
     def update_actor_critic(self, replay_buffer, batch_size=256):
         states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size)
+
         states = torch.FloatTensor(states).to(self.device)
         actions = torch.FloatTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
         next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
 
         # 1) Encoder + Decoder
         embedding = self.encoder(states, actions, rewards, next_states)
         recon = self.decoder(embedding)
-        if rewards.ndim == 1:
-            rewards = rewards.unsqueeze(-1)
-        L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards, next_states], dim=-1))
+        # if rewards.ndim == 1:
+        #     rewards = rewards.unsqueeze(-1)
+        L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards.unsqueeze(1), next_states], dim=-1))
 
         # 3) Hypernetwork
         actor_params, critic_params = self.hypernet(embedding)
@@ -226,14 +228,16 @@ class Agent:
         # 6) Compute SAC-style losses L_pi and L_Q on your imagined data…
         with torch.no_grad():
             next_actions, next_log_probs = self.actor.sample(next_states) # Sample actions from policy for next_states
-            q1_next, q2_next = self.critic(next_states, next_actions)
-            q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_probs
+            q1_next, q2_next = self.critic(next_states, next_actions) ## [B , 1]
+            q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_probs ## [B , 1]
             target_value = rewards + (1 - dones) * self.gamma * q_next.squeeze(-1).detach()
         
         # Update Q networks
         q1_pred, q2_pred = self.critic(states, actions)
+
         q1_pred = q1_pred.squeeze(-1)
-        q2_pred = q2_pred.squeeze(-1)
+        q2_pred = q2_pred.squeeze(-1) ## [Batchsize,]
+        
         critic_loss = F.mse_loss(q1_pred, target_value) + F.mse_loss(q2_pred, target_value)
 
         # Update policy
