@@ -6,7 +6,6 @@ import numpy as np
 import random
 from collections import deque
 import os
-import ipdb
 
 ## 格式還沒檢查
 class ReplayBuffer:
@@ -38,7 +37,6 @@ class Encoder(nn.Module):
             nn.Linear(state_dim + action_dim + 1 + state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, latent_dim),
-            nn.ReLU(),
         )
     def forward(self, state, action, reward, next_state):
         # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
@@ -165,6 +163,7 @@ class Agent:
         self.hypernet = HyperNetwork(latent_dim, 
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
+        
         self.memory = deque(maxlen=10)
         self.replay_buffer = ReplayBuffer(1000000, device=device)
         self.gamma = gamma
@@ -181,6 +180,7 @@ class Agent:
         next_state = torch.FloatTensor(next_state)
         self.memory.append((state, action, reward, next_state))
         states, actions, rewards, next_states = zip(*self.memory) 
+
         states = torch.stack(states).to(self.device)
         actions = torch.stack(actions).to(self.device)
         rewards = torch.FloatTensor(rewards).to(self.device)
@@ -208,7 +208,7 @@ class Agent:
         rewards = torch.FloatTensor(rewards).to(self.device)
         next_states = torch.FloatTensor(next_states).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
-
+        
         # 1) Encoder + Decoder
         embedding = self.encoder(states, actions, rewards, next_states)
         recon = self.decoder(embedding)
