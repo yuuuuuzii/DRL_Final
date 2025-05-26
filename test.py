@@ -8,5 +8,6 @@ for _ in range(1000):
     obs, reward, done, truncated, info = env.step(action)
     if done or truncated:
         obs, _ = env.reset()
+        
     total_reward += reward
 print(total_reward)
