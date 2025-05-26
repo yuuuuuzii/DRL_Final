@@ -24,10 +24,10 @@ def main():
     log_std_min = -20
     log_std_max = 2
     gamma = 0.99
-    tau = 0.005
+    tau = 0.0005
     alpha = 0.2
     lr = 3e-4
-    use_wandb = True
+    use_wandb = False
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -39,28 +39,25 @@ def main():
         wandb.watch([agent.encoder, agent.decoder, agent.hypernet])
 
     ## 我這邊先分開更新，感覺一起
-    optimizer_encoder = optim.Adam(list(agent.encoder.parameters()) + list(agent.decoder.parameters()), lr=lr)
-    optimizer_hyper = optim.Adam(agent.hypernet.parameters(), lr=lr)
+    optimizer_encoder = optim.Adam(list(agent.encoder.parameters()) + list(agent.decoder.parameters()), lr=0.0008)
+    optimizer_hyper = optim.Adam(agent.hypernet.parameters(), lr=0.0008)
     num_episodes = 1000
     max_timesteps = 1000
     batch_size = 256
 
     rewards_per_episode = deque([], maxlen=100)
-    total_sac_loss = 0
-    total_enc_dec_loss = 0
-    total_timesteps = 0
-    train_only_enc = False
+    total_sac_loss = 0.0
+    total_enc_dec_loss = 0.0
 
     for task in range(1):
-        env = make_env(task)
+        env = make_env()
         for episode in tqdm(range(num_episodes)):
             state, _ = env.reset()
             episode_reward = 0
-            total_sac_loss = None
-            total_enc_dec_loss = None
-            if episode < 10:
-                train_only_enc = True
-
+            total_sac_loss = 0.0
+            total_enc_dec_loss = 0.0
+            num_updates = 0
+  
             for t in range(max_timesteps):
                 if t < 100:
                     action = env.action_space.sample()
@@ -74,48 +71,39 @@ def main():
 
                 if len(agent.replay_buffer) > batch_size:
                     sac_loss, enc_dec_loss = agent.update_actor_critic(agent.replay_buffer, batch_size)
-                
-                    if total_sac_loss is None:
-                        total_sac_loss = sac_loss
-                        total_enc_dec_loss = enc_dec_loss
-                    else:
-                        total_sac_loss = total_sac_loss + sac_loss
-                        total_enc_dec_loss = total_enc_dec_loss + enc_dec_loss
+                    num_updates += 1
+                    total_sac_loss += sac_loss.item()
+                    total_enc_dec_loss += enc_dec_loss.item()
 
-                # 還沒用到這東西    
-                total_timesteps += 1
-            
-                if t % 1 == 0:
+                    optimizer_encoder.zero_grad()
+                    enc_dec_loss.backward()
+                    optimizer_encoder.step()
+
+                    optimizer_hyper.zero_grad()
+                    sac_loss.backward()
+                    optimizer_hyper.step()
+
                     for target_param, param in zip(agent.critic_target.parameters(), agent.critic.parameters()):
                         target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
                 
                 if done or truncated:
                     break
-            
+                    
             # episodic update
-            total_loss = total_enc_dec_loss + total_sac_loss
-            avg_loss = total_loss / t
-            avg_enc_dec_loss = total_enc_dec_loss / t
-            avg_sac_loss = total_sac_loss / t
+            if num_updates > 0:
+                avg_enc_dec_loss = total_enc_dec_loss / num_updates
+                avg_sac_loss     = total_sac_loss     / num_updates
+                total_loss         = avg_enc_dec_loss + avg_sac_loss
+            else:
+                avg_enc_dec_loss = avg_sac_loss = total_loss = 0.0
 
-            optimizer_encoder.zero_grad()
-            avg_enc_dec_loss.backward()
-            optimizer_encoder.step()
 
-            if not train_only_enc:
-                optimizer_hyper.zero_grad()
-                avg_sac_loss.backward()
-                optimizer_hyper.step()
-
-            
             rewards_per_episode.append(episode_reward)
-            print(f"Episode {episode}: ELoss: {avg_loss.item():.2f}, Recon Loss: {avg_enc_dec_loss.item():.2f}, SAC Loss: {avg_sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
+            print(f"Episode {episode}: Total_Loss: {total_loss:.2f}, Recon Loss: {total_enc_dec_loss:.2f}, SAC Loss: {total_sac_loss:.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
         # limit the access to the past experiences
+            if episode % 500 == 0:
+                agent.save("checkpoints/", episode)
+
         agent.replay_buffer.clear()
-
-
-        if episode % 500 == 0:
-            agent.save("checkpoints/", episode)
-
 if __name__== '__main__':
     main()

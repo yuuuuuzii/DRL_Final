@@ -99,7 +99,6 @@ class Actor(nn.Module):
 
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
         )
         self.mu_layer = nn.Linear(hidden_dim, action_dim)
@@ -131,13 +130,11 @@ class Critic(nn.Module):
         self.q1 = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
 
         self.q2 = nn.Sequential(
             nn.Linear(state_dim + action_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
@@ -164,7 +161,7 @@ class Agent:
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
         
-        self.memory = deque(maxlen=10)
+        self.memory = deque(maxlen=30)
         self.replay_buffer = ReplayBuffer(1000000, device=device)
         self.gamma = gamma
         self.tau = tau

@@ -28,3 +28,4 @@ dependencies:
     - tensorboard-plugin-wit==1.8.1
     - tensorboardx==2.2
     - tqdm==4.62.3
+    - wandb
