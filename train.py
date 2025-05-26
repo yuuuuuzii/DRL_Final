@@ -24,7 +24,7 @@ def main():
     log_std_min = -20
     log_std_max = 2
     gamma = 0.99
-    tau = 0.0005
+    tau = 0.0008
     alpha = 0.2
     lr = 3e-4
     use_wandb = False
@@ -44,7 +44,7 @@ def main():
     num_episodes = 1000
     max_timesteps = 1000
     batch_size = 256
-
+    
     rewards_per_episode = deque([], maxlen=100)
     total_sac_loss = 0.0
     total_enc_dec_loss = 0.0

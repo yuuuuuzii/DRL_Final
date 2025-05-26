@@ -182,6 +182,7 @@ class Agent:
         rewards = torch.FloatTensor(rewards).to(self.device)
         next_states = torch.stack(next_states).to(self.device)
         embeddings = self.encoder(states, actions, rewards, next_states)
+        
         # embeddings = embeddings.detach()
         embedding = torch.mean(embeddings, dim=0)
         actor_params, _ = self.hypernet(embedding)
