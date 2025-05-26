@@ -1,0 +1,7 @@
+{"time":"2025-05-26T23:18:50.997367266+08:00","level":"INFO","msg":"stream: starting","core version":"0.19.11","symlink path":"/home/chunyulin/Desktop/DRL/DRL_Final/wandb/run-20250526_231850-tihi5s47/logs/debug-core.log"}
+{"time":"2025-05-26T23:18:51.317858859+08:00","level":"INFO","msg":"created new stream","id":"tihi5s47"}
+{"time":"2025-05-26T23:18:51.317934637+08:00","level":"INFO","msg":"stream: started","id":"tihi5s47"}
+{"time":"2025-05-26T23:18:51.317976704+08:00","level":"INFO","msg":"writer: Do: started","stream_id":"tihi5s47"}
+{"time":"2025-05-26T23:18:51.318055095+08:00","level":"INFO","msg":"handler: started","stream_id":"tihi5s47"}
+{"time":"2025-05-26T23:18:51.318129043+08:00","level":"INFO","msg":"sender: started","stream_id":"tihi5s47"}
+{"time":"2025-05-26T23:18:51.622010948+08:00","level":"INFO","msg":"Starting system monitor"}

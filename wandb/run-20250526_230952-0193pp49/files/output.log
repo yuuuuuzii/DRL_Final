@@ -1,0 +1,9 @@
+/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/gymnasium/envs/registration.py:519: DeprecationWarning: [33mWARN: The environment HalfCheetah-v4 is out of date. You should consider upgrading to version `v5`.[0m
+  logger.deprecation(
+  0%|                                                                                                                                    | 0/1000 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 121, in <module>
+    main()
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 96, in main
+    total_loss = total_enc_dec_loss + total_sac_loss
+TypeError: unsupported operand type(s) for +: 'NoneType' and 'NoneType'

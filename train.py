@@ -5,7 +5,9 @@ from tqdm import tqdm
 import gymnasium as gym
 from utils import Agent
 from collections import deque
-# import ipdb
+import wandb
+
+
 def make_env(task_id=None):
     env = gym.make("HalfCheetah-v4")
     if task_id is not None:
@@ -25,22 +27,29 @@ def main():
     tau = 0.005
     alpha = 0.2
     lr = 3e-4
+    use_wandb = True
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     agent = Agent(state_dim, action_dim, hidden_dim, latent_dim, action_scale, log_std_min, log_std_max, gamma, tau, alpha, device)
 
+    if use_wandb:
+        wandb.login()
+        wandb.init(project="DRL_Final", name=f"Hyper SAC")
+        wandb.watch([agent.encoder, agent.decoder, agent.hypernet])
+
     ## 我這邊先分開更新，感覺一起
     optimizer_encoder = optim.Adam(list(agent.encoder.parameters()) + list(agent.decoder.parameters()), lr=lr)
     optimizer_hyper = optim.Adam(agent.hypernet.parameters(), lr=lr)
     num_episodes = 1000
-    max_timesteps = 200
+    max_timesteps = 1000
     batch_size = 256
 
     rewards_per_episode = deque([], maxlen=100)
     total_sac_loss = 0
     total_enc_dec_loss = 0
     total_timesteps = 0
+    train_only_enc = False
 
     for task in range(1):
         env = make_env(task)
@@ -49,6 +58,9 @@ def main():
             episode_reward = 0
             total_sac_loss = None
             total_enc_dec_loss = None
+            if episode < 10:
+                train_only_enc = True
+
             for t in range(max_timesteps):
                 if t < 100:
                     action = env.action_space.sample()
@@ -82,18 +94,22 @@ def main():
             
             # episodic update
             total_loss = total_enc_dec_loss + total_sac_loss
+            avg_loss = total_loss / t
+            avg_enc_dec_loss = total_enc_dec_loss / t
+            avg_sac_loss = total_sac_loss / t
 
             optimizer_encoder.zero_grad()
-            total_enc_dec_loss.backward(retain_graph=True)
+            avg_enc_dec_loss.backward()
             optimizer_encoder.step()
 
-            optimizer_hyper.zero_grad()
-            total_sac_loss.backward(retain_graph=True)
-            optimizer_hyper.step()
+            if not train_only_enc:
+                optimizer_hyper.zero_grad()
+                avg_sac_loss.backward()
+                optimizer_hyper.step()
 
             
             rewards_per_episode.append(episode_reward)
-            print(f"Episode {episode}: ELoss: {total_loss.item():.2f}, Recon Loss: {enc_dec_loss.item():.2f}, SAC Loss: {sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
+            print(f"Episode {episode}: ELoss: {avg_loss.item():.2f}, Recon Loss: {avg_enc_dec_loss.item():.2f}, SAC Loss: {avg_sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
         # limit the access to the past experiences
         agent.replay_buffer.clear()
 

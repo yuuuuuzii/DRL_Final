@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 120, in <module>
+    main()
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 39, in main
+    wandb.watch(agent)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 406, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 451, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/wandb/sdk/wandb_run.py", line 3035, in watch
+    wandb.sdk._watch(self, models, criterion, log, log_freq, idx, log_graph)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/wandb/sdk/wandb_watch.py", line 88, in _watch
+    raise ValueError(
+ValueError: Expected a pytorch model (torch.nn.Module). Received <class 'utils.Agent'>

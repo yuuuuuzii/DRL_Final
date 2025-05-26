@@ -61,26 +61,25 @@ class Decoder(nn.Module):
 
 ## 這邊會輸出的是 actor and critic 的係數
 class HyperNetwork(nn.Module):
-    def __init__(self, latent_dim, actor_param_size, critic_param_size):
+    def __init__(self, latent_dim, hidden_dim, actor_param_size, critic_param_size):
         super().__init__()
-        HIDDEN_STATE = 512
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, latent_dim),
             nn.ReLU(),
         )
         self.head_actor  = nn.Sequential(
-            nn.Linear(latent_dim, HIDDEN_STATE), 
+            nn.Linear(latent_dim, hidden_dim), 
             nn.ReLU(),
-            nn.Linear(HIDDEN_STATE, HIDDEN_STATE), 
+            nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
-            nn.Linear(HIDDEN_STATE, actor_param_size)
+            nn.Linear(hidden_dim, actor_param_size)
         )
         self.head_critic  = nn.Sequential(
-            nn.Linear(latent_dim, HIDDEN_STATE),
+            nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(HIDDEN_STATE, HIDDEN_STATE), 
+            nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
-            nn.Linear(HIDDEN_STATE, critic_param_size)
+            nn.Linear(hidden_dim, critic_param_size)
         )
     ## 這邊吃encoder task後產生的embedding
     def forward(self, embedding):
@@ -160,7 +159,8 @@ class Agent:
         self.critic_target.eval()
         print("actor params:", self.count_params(self.actor))
         print("critic params:", self.count_params(self.critic))
-        self.hypernet = HyperNetwork(latent_dim, 
+        self.hypernet = HyperNetwork(latent_dim,
+                                     hidden_dim, 
                                      actor_param_size=self.count_params(self.actor), 
                                      critic_param_size=self.count_params(self.critic)).to(self.device)
         
@@ -176,7 +176,6 @@ class Agent:
     def select_action(self, state, action, reward, next_state, deterministic=False):
         state = torch.FloatTensor(state).to(self.device)
         action = torch.FloatTensor(action).to(self.device)
-        # reward = torch.FloatTensor(reward) 
         next_state = torch.FloatTensor(next_state)
         self.memory.append((state, action, reward, next_state))
         states, actions, rewards, next_states = zip(*self.memory) 
@@ -186,8 +185,7 @@ class Agent:
         rewards = torch.FloatTensor(rewards).to(self.device)
         next_states = torch.stack(next_states).to(self.device)
         embeddings = self.encoder(states, actions, rewards, next_states)
-        embeddings = embeddings.detach()
-        # print(embeddings.shape)
+        # embeddings = embeddings.detach()
         embedding = torch.mean(embeddings, dim=0)
         actor_params, _ = self.hypernet(embedding)
         vector_to_parameters(actor_params, self.actor.parameters())
@@ -212,14 +210,10 @@ class Agent:
         # 1) Encoder + Decoder
         embedding = self.encoder(states, actions, rewards, next_states)
         recon = self.decoder(embedding)
-        # if rewards.ndim == 1:
-        #     rewards = rewards.unsqueeze(-1)
         L_recon = F.mse_loss(recon, torch.cat([states, actions, rewards.unsqueeze(1), next_states], dim=-1))
 
         # 3) Hypernetwork
         actor_params, critic_params = self.hypernet(embedding)
-        # print("actor params:", actor_params.shape)
-        # print("critic params:", critic_params.shape)
         actor_params = torch.mean(actor_params, dim=0)
         critic_params = torch.mean(critic_params, dim=0)
         vector_to_parameters(actor_params, self.actor.parameters())

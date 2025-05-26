@@ -1,0 +1,39 @@
+/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/gymnasium/envs/registration.py:519: DeprecationWarning: [33mWARN: The environment HalfCheetah-v4 is out of date. You should consider upgrading to version `v5`.[0m
+  logger.deprecation(
+  3%|███▊                                                                                                                     | 31/1000 [06:44<3:35:23, 13.34s/it]
+Episode 0: ELoss: 11.49, Recon Loss: 10.61, SAC Loss: 0.88, Reward: -292.90
+Episode 1: ELoss: 16.03, Recon Loss: 14.98, SAC Loss: 1.04, Reward: -280.08
+Episode 2: ELoss: 16.37, Recon Loss: 15.39, SAC Loss: 0.98, Reward: -267.52
+Episode 3: ELoss: 16.19, Recon Loss: 15.26, SAC Loss: 0.93, Reward: -276.43
+Episode 4: ELoss: 15.94, Recon Loss: 15.03, SAC Loss: 0.91, Reward: -291.44
+Episode 5: ELoss: 15.67, Recon Loss: 14.76, SAC Loss: 0.91, Reward: -309.77
+Episode 6: ELoss: 15.51, Recon Loss: 14.58, SAC Loss: 0.93, Reward: -311.82
+Episode 7: ELoss: 15.32, Recon Loss: 14.36, SAC Loss: 0.96, Reward: -331.65
+Episode 8: ELoss: 15.21, Recon Loss: 14.21, SAC Loss: 1.00, Reward: -321.56
+Episode 9: ELoss: 15.15, Recon Loss: 14.13, SAC Loss: 1.03, Reward: -313.17
+Episode 10: ELoss: 15.06, Recon Loss: 13.98, SAC Loss: 1.08, Reward: -311.50
+Episode 11: ELoss: 14.91, Recon Loss: 13.79, SAC Loss: 1.13, Reward: -309.32
+Episode 12: ELoss: 14.83, Recon Loss: 13.65, SAC Loss: 1.19, Reward: -314.34
+Episode 13: ELoss: 14.74, Recon Loss: 13.48, SAC Loss: 1.25, Reward: -313.17
+Episode 14: ELoss: 14.63, Recon Loss: 13.30, SAC Loss: 1.34, Reward: -314.02
+Episode 15: ELoss: 14.67, Recon Loss: 13.21, SAC Loss: 1.46, Reward: -316.90
+Episode 16: ELoss: 14.65, Recon Loss: 13.06, SAC Loss: 1.59, Reward: -313.87
+Episode 17: ELoss: 14.64, Recon Loss: 12.90, SAC Loss: 1.73, Reward: -318.48
+Episode 18: ELoss: 14.65, Recon Loss: 12.71, SAC Loss: 1.94, Reward: -321.19
+Episode 19: ELoss: 14.60, Recon Loss: 12.48, SAC Loss: 2.12, Reward: -324.82
+Episode 20: ELoss: 14.63, Recon Loss: 12.27, SAC Loss: 2.37, Reward: -326.07
+Episode 21: ELoss: 14.74, Recon Loss: 12.07, SAC Loss: 2.66, Reward: -327.25
+Episode 22: ELoss: 14.85, Recon Loss: 11.86, SAC Loss: 2.99, Reward: -325.42
+Episode 23: ELoss: 15.08, Recon Loss: 11.65, SAC Loss: 3.43, Reward: -326.28
+Episode 24: ELoss: 15.37, Recon Loss: 11.43, SAC Loss: 3.94, Reward: -329.27
+Episode 25: ELoss: 15.74, Recon Loss: 11.20, SAC Loss: 4.55, Reward: -323.72
+Episode 26: ELoss: 16.12, Recon Loss: 10.94, SAC Loss: 5.18, Reward: -319.26
+Episode 27: ELoss: 16.79, Recon Loss: 10.70, SAC Loss: 6.09, Reward: -321.23
+Episode 28: ELoss: 17.60, Recon Loss: 10.44, SAC Loss: 7.17, Reward: -318.94
+Episode 29: ELoss: 18.61, Recon Loss: 10.19, SAC Loss: 8.42, Reward: -324.97
+Episode 30: ELoss: 19.90, Recon Loss: 9.91, SAC Loss: 9.99, Reward: -320.92
+Episode 31: ELoss: 21.45, Recon Loss: 9.63, SAC Loss: 11.82, Reward: -320.96
+Episode 32: ELoss: 23.34, Recon Loss: 9.34, SAC Loss: 13.99, Reward: -316.37
+Episode 33: ELoss: 25.83, Recon Loss: 9.08, SAC Loss: 16.75, Reward: -311.35
+Episode 34: ELoss: 28.78, Recon Loss: 8.80, SAC Loss: 19.98, Reward: -315.10
+Episode 35: ELoss: 32.21, Recon Loss: 8.51, SAC Loss: 23.69, Reward: -310.83
