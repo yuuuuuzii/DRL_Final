@@ -61,10 +61,11 @@ class Decoder(nn.Module):
 
 ## 這邊會輸出的是 actor and critic 的係數
 class HyperNetwork(nn.Module):
-    def __init__(self, latent_dim, hidden_dim, hidden_dim, actor_param_size, critic_param_size):
+    def __init__(self, latent_dim, hidden_dim, actor_param_size, critic_param_size):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, latent_dim),
+            nn.ReLU(),
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
         )
@@ -72,18 +73,14 @@ class HyperNetwork(nn.Module):
             nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), 
-            nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
-            nn.Linear(hidden_dim, actor_param_size)
             nn.Linear(hidden_dim, actor_param_size)
         )
         self.head_critic  = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), 
-            nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
-            nn.Linear(hidden_dim, critic_param_size)
             nn.Linear(hidden_dim, critic_param_size)
         )
     ## 這邊吃encoder task後產生的embedding
@@ -164,8 +161,6 @@ class Agent:
         self.critic_target.eval()
         print("actor params:", self.count_params(self.actor))
         print("critic params:", self.count_params(self.critic))
-        self.hypernet = HyperNetwork(latent_dim,
-                                     hidden_dim, 
         self.hypernet = HyperNetwork(latent_dim,
                                      hidden_dim, 
                                      actor_param_size=self.count_params(self.actor), 
