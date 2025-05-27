@@ -1,0 +1,9 @@
+/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/gymnasium/envs/registration.py:519: DeprecationWarning: [33mWARN: The environment HalfCheetah-v4 is out of date. You should consider upgrading to version `v5`.[0m
+  logger.deprecation(
+ 18%|████████████████████▌                                                                                             | 180/1000 [1:26:17<6:33:08, 28.77s/it]
+Traceback (most recent call last):
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 121, in <module>
+    main()
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 85, in main
+    target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
+KeyboardInterrupt

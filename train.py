@@ -48,18 +48,15 @@ def main():
     rewards_per_episode = deque([], maxlen=100)
     total_sac_loss = 0
     total_enc_dec_loss = 0
-    total_timesteps = 0
-    train_only_enc = False
 
     for task in range(1):
         env = make_env(task)
         for episode in tqdm(range(num_episodes)):
             state, _ = env.reset()
             episode_reward = 0
-            total_sac_loss = None
-            total_enc_dec_loss = None
-            if episode < 10:
-                train_only_enc = True
+            total_sac_loss = 0.0
+            total_enc_dec_loss = 0.0
+            num_updates = 0
 
             for t in range(max_timesteps):
                 if t < 100:
@@ -73,17 +70,15 @@ def main():
                 episode_reward += reward
 
                 if len(agent.replay_buffer) > batch_size:
+                    num_updates += 1
                     sac_loss, enc_dec_loss = agent.update_actor_critic(agent.replay_buffer, batch_size)
-                
-                    if total_sac_loss is None:
-                        total_sac_loss = sac_loss
-                        total_enc_dec_loss = enc_dec_loss
-                    else:
-                        total_sac_loss = total_sac_loss + sac_loss
-                        total_enc_dec_loss = total_enc_dec_loss + enc_dec_loss
 
-                # 還沒用到這東西    
-                total_timesteps += 1
+                    optimizer_hyper.zero_grad()
+                    sac_loss.backward()
+                    optimizer_hyper.step()
+                
+                    total_sac_loss = total_sac_loss + sac_loss
+                    total_enc_dec_loss = total_enc_dec_loss + enc_dec_loss                    
             
                 if t % 1 == 0:
                     for target_param, param in zip(agent.critic_target.parameters(), agent.critic.parameters()):
@@ -93,27 +88,32 @@ def main():
                     break
             
             # episodic update
-            total_loss = total_enc_dec_loss + total_sac_loss
-            avg_loss = total_loss / t
-            avg_enc_dec_loss = total_enc_dec_loss / t
-            avg_sac_loss = total_sac_loss / t
+            if num_updates > 0:
+                avg_enc_dec_loss = total_enc_dec_loss / num_updates
+                avg_sac_loss     = total_sac_loss     / num_updates
+                avg_loss         = avg_enc_dec_loss + avg_sac_loss
 
-            optimizer_encoder.zero_grad()
-            avg_enc_dec_loss.backward()
-            optimizer_encoder.step()
+                optimizer_encoder.zero_grad()
+                avg_enc_dec_loss.backward()
+                optimizer_encoder.step()
 
-            if not train_only_enc:
-                optimizer_hyper.zero_grad()
-                avg_sac_loss.backward()
-                optimizer_hyper.step()
-
+            else:
+                avg_enc_dec_loss = avg_sac_loss = total_loss = 0.0          
             
             rewards_per_episode.append(episode_reward)
-            print(f"Episode {episode}: ELoss: {avg_loss.item():.2f}, Recon Loss: {avg_enc_dec_loss.item():.2f}, SAC Loss: {avg_sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
+
+            if use_wandb:
+                wandb.log({'total avg loss': avg_loss,
+                           'avg reconstruction loss': avg_enc_dec_loss,
+                           'avg sac loss': avg_sac_loss,
+                           'reward': episode_reward,
+                           })
+
         # limit the access to the past experiences
         agent.replay_buffer.clear()
 
-
+        if episode % 100 == 0:
+            print(f"Episode {episode}: ELoss: {avg_loss.item():.2f}, Recon Loss: {avg_enc_dec_loss.item():.2f}, SAC Loss: {avg_sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
         if episode % 500 == 0:
             agent.save("checkpoints/", episode)
 

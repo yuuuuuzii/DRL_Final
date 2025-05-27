@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.utils import vector_to_parameters
+from torch.nn.utils import vector_to_parameters, parameters_to_vector
 import numpy as np
 import random
 from collections import deque
@@ -65,17 +65,18 @@ class HyperNetwork(nn.Module):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, latent_dim),
+            nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
         )
         self.head_actor  = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), 
+            nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
             nn.Linear(hidden_dim, actor_param_size)
         )
         self.head_critic  = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), 
             nn.ReLU(),
@@ -169,6 +170,8 @@ class Agent:
         self.gamma = gamma
         self.tau = tau
         self.alpha = alpha
+        self.alpha_tau = 0.005
+        self.q_tau = 0.005
 
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
@@ -188,6 +191,8 @@ class Agent:
         # embeddings = embeddings.detach()
         embedding = torch.mean(embeddings, dim=0)
         actor_params, _ = self.hypernet(embedding)
+        prev_actor_params = parameters_to_vector(self.actor.parameters())
+        actor_params = (1 - self.alpha_tau) * actor_params + self.alpha_tau * prev_actor_params  # Add previous parameters to the new ones
         vector_to_parameters(actor_params, self.actor.parameters())
         
         if deterministic:
@@ -216,6 +221,11 @@ class Agent:
         actor_params, critic_params = self.hypernet(embedding)
         actor_params = torch.mean(actor_params, dim=0)
         critic_params = torch.mean(critic_params, dim=0)
+        prev_actor_params = parameters_to_vector(self.actor.parameters())
+        prev_critic_params = parameters_to_vector(self.critic.parameters())
+
+        actor_params = (1 - self.alpha_tau) * actor_params + self.alpha_tau * prev_actor_params  
+        critic_params = (1 - self.q_tau) * critic_params + self.q_tau * prev_critic_params  
         vector_to_parameters(actor_params, self.actor.parameters())
         vector_to_parameters(critic_params, self.critic.parameters())
 

@@ -1,0 +1,29 @@
+/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/gymnasium/envs/registration.py:519: DeprecationWarning: [33mWARN: The environment HalfCheetah-v4 is out of date. You should consider upgrading to version `v5`.[0m
+  logger.deprecation(
+  8%|█████████▌                                                                                                               | 79/1000 [35:07<6:49:29, 26.68s/it]
+Traceback (most recent call last):
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 122, in <module>
+    main()
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/train.py", line 75, in main
+    sac_loss, enc_dec_loss = agent.update_actor_critic(agent.replay_buffer, batch_size)
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/utils.py", line 239, in update_actor_critic
+    q1_pi, q2_pi = self.critic(states, action_pi)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/chunyulin/Desktop/DRL/DRL_Final/utils.py", line 147, in forward
+    return self.q1(x), self.q2(x)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/chunyulin/anaconda3/envs/offline_rl/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 125, in forward
+    return F.linear(input, self.weight, self.bias)
+KeyboardInterrupt

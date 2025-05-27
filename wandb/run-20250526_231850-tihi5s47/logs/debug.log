@@ -21,3 +21,4 @@ config: {'_wandb': {}}
 2025-05-26 23:18:51,727 INFO    MainThread:4149342 [wandb_run.py:_redirect():2513] Redirects installed.
 2025-05-26 23:18:51,730 INFO    MainThread:4149342 [wandb_init.py:init():1150] run started, returning control to user process
 2025-05-26 23:18:51,730 INFO    MainThread:4149342 [wandb_watch.py:_watch():71] Watching
+2025-05-27 01:11:02,471 INFO    MsgRouterThr:4149342 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

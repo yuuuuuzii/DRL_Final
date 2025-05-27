@@ -1,0 +1,1 @@
+{"_timestamp":1.748324999945158e+09,"_runtime":2091.977102368,"_step":78,"total avg loss":1232.629638671875,"avg reconstruction loss":1.4726287126541138,"avg sac loss":1231.156982421875,"reward":-725.9851004536878,"_wandb":{"runtime":2110}}
