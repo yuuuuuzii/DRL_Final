@@ -48,27 +48,15 @@ def main():
     rewards_per_episode = deque([], maxlen=100)
     total_sac_loss = 0
     total_enc_dec_loss = 0
-<<<<<<< HEAD
-=======
-    total_timesteps = 0
-    train_only_enc = False
->>>>>>> 7add86db6a6766cd7bc1d3fffeca25b7f297141f
 
     for task in range(1):
         env = make_env(task)
         for episode in tqdm(range(num_episodes)):
             state, _ = env.reset()
             episode_reward = 0
-<<<<<<< HEAD
             total_sac_loss = 0.0
             total_enc_dec_loss = 0.0
             num_updates = 0
-=======
-            total_sac_loss = None
-            total_enc_dec_loss = None
-            if episode < 10:
-                train_only_enc = True
->>>>>>> 7add86db6a6766cd7bc1d3fffeca25b7f297141f
 
             for t in range(max_timesteps):
                 if t < 100:
@@ -100,7 +88,6 @@ def main():
                     break
             
             # episodic update
-<<<<<<< HEAD
             if num_updates > 0:
                 avg_enc_dec_loss = total_enc_dec_loss / num_updates
                 avg_sac_loss     = total_sac_loss     / num_updates
@@ -109,27 +96,11 @@ def main():
                 optimizer_encoder.zero_grad()
                 avg_enc_dec_loss.backward()
                 optimizer_encoder.step()
-=======
-            total_loss = total_enc_dec_loss + total_sac_loss
-            avg_loss = total_loss / t
-            avg_enc_dec_loss = total_enc_dec_loss / t
-            avg_sac_loss = total_sac_loss / t
-
-            optimizer_encoder.zero_grad()
-            avg_enc_dec_loss.backward()
-            optimizer_encoder.step()
-
-            if not train_only_enc:
-                optimizer_hyper.zero_grad()
-                avg_sac_loss.backward()
-                optimizer_hyper.step()
->>>>>>> 7add86db6a6766cd7bc1d3fffeca25b7f297141f
 
             else:
                 avg_enc_dec_loss = avg_sac_loss = total_loss = 0.0          
             
             rewards_per_episode.append(episode_reward)
-<<<<<<< HEAD
 
             if use_wandb:
                 wandb.log({'total avg loss': avg_loss,
@@ -138,9 +109,6 @@ def main():
                            'reward': episode_reward,
                            })
 
-=======
-            print(f"Episode {episode}: ELoss: {avg_loss.item():.2f}, Recon Loss: {avg_enc_dec_loss.item():.2f}, SAC Loss: {avg_sac_loss.item():.2f}, Reward: {np.mean(rewards_per_episode):.2f}")
->>>>>>> 7add86db6a6766cd7bc1d3fffeca25b7f297141f
         # limit the access to the past experiences
         agent.replay_buffer.clear()
 
