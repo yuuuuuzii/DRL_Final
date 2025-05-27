@@ -6,6 +6,7 @@ import gymnasium as gym
 from utils import Agent
 from collections import deque
 import wandb
+from gym import Wrapper
 
 
 def make_env(task_id=None):
@@ -15,7 +16,12 @@ def make_env(task_id=None):
     return env
 
 def main():
-    env = make_env()
+    target_velocities = [0.5, 1.0, 1.5]
+    # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
+    failed_joints     = [0, 2, 4]
+    env_list = []
+
+
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     hidden_dim = 256

@@ -10,6 +10,21 @@ from torch.distributions import Normal
 import os
 import pickle
 import sys
+from gym import Wrapper
+from halfcheetah_vel_env import HalfCheetahVelEnv
+
+
+class JointFailureWrapper(Wrapper):
+    def __init__(self, env, failed_joint: int):
+        if not hasattr(env, 'reward_range'):
+            env.reward_range = (-np.inf, np.inf)
+        super().__init__(env)
+        self.failed_joint = failed_joint
+
+    def step(self, action):
+        a = np.array(action, copy=True)
+        a[self.failed_joint] = 0.0
+        return self.env.step(a)
 
 
 def weights_init_(m):
@@ -20,20 +35,20 @@ def weights_init_(m):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 512)
+        self.fc1 = nn.Linear(state_dim, )
         self.fc2 = nn.Linear(512, 512)
         self.fc3 = nn.Linear(512, 512)
         self.mean = nn.Linear(512, action_dim)
         self.log_std = nn.Linear(512, action_dim)
-        self.action_scale = torch.tensor((action_space.high - action_space.low) / 2.).to(device)
-        self.action_bias = torch.tensor((action_space.high + action_space.low) / 2.).to(device)
+
+        self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
+        self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
 
         self.apply(weights_init_)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
         mean = self.mean(x)
         log_std = self.log_std(x).clamp(-20, 2)
         std = torch.exp(log_std)
@@ -64,7 +79,7 @@ class Critic(nn.Module):
             nn.Linear(512, 1)
         )
         self.q2 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 512),
+             nn.Linear(state_dim + action_dim, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
@@ -183,54 +198,100 @@ class SACAgent:
         checkpoint = torch.load(f"{path_prefix}_model.pth", map_location=torch.device('cpu'))
         self.actor.load_state_dict(checkpoint['actor'])
 
-
+def evaluate_agent(agent, env, episodes=5):
+    """
+    Run `episodes` evaluation episodes on `env` with `agent` (no exploration noise).
+    Returns mean and std of total rewards.
+    """
+    rewards = []
+    for _ in range(episodes):
+        state, _ = env.reset()
+        total_reward = 0.0
+        done = False
+        while not done:
+            # deterministic / eval mode
+            action = agent.select_action(state, deterministic=True)
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            state = next_state
+            total_reward += reward
+        rewards.append(total_reward)
+    return np.mean(rewards), np.std(rewards)
      
 
 if __name__ == "__main__":
-    env = gym.make("HalfCheetah-v4")
+    
+    # target_velocities = [0.5, 1.0, 1.5]
+    # # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
+    # # failed_joints     = [0, 2, 4]
+    # env_list = []
+    # for vel in target_velocities:
+    #     #for joint in failed_joints:
+    #         # 建立原始環境
+    #     env = gym.make('HalfCheetah-v4')
+    #     # 套入速度追蹤 Wrapper
+    #     env = VelocityWrapper(env, target_velocity=vel)
+    #     # 套入關節失效 Wrapper
+    #     # env = JointFailureWrapper(env, failed_joint=joint)
+    #     # 把 (名稱, 環境) 存起來
+    #     name = f'HalfCheetah_vel{vel:.1f}'
+    #     env_list.append((name, env))
+    base_env = HalfCheetahVelEnv()
+    tasks    = base_env.sample_tasks(num_tasks=5)    # 比如取 5 種速度
 
+    # 2) 為每個 task 建立一個 env 實例
+    envs = []
+    for task in tasks:
+        env = HalfCheetahVelEnv(task)
+        env.reset()      # 會設置 _goal_vel
+        envs.append((task['velocity'], env))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
   
     agent = SACAgent(state_dim, action_dim, env.action_space)
     # agent.load(load_path, train=True)
-    num_episodes = 10000
+    num_episodes = 1000
     reward_history = [] 
     warmup_episode = 50
-    # total_step = 0
-    # max_step = 1000
+    trained_tasks = []
 
-    for episode in range(num_episodes):
-        state, _ = env.reset()
-        total_reward = 0
-        done = False
+    for vel, env in envs:
+        print(f"Training on target velocity = {vel:.2f}")
+        trained_tasks.append((vel, env))
+        for episode in range(num_episodes):
+            state, _ = env.reset()
+            total_reward = 0
+            done = False
 
-        # for _ in range(max_step):
-        while not done:
-            if episode <= warmup_episode:
-                action = env.action_space.sample()
-            else:
-                action = agent.select_action(state)
+            # for _ in range(max_step):
+            while not done:
+                if episode <= warmup_episode:
+                    action = env.action_space.sample()
+                else:
+                    action = agent.select_action(state)
 
-            next_state, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-            
-            agent.memory.add(state, action, reward, next_state, done)
+                next_state, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                agent.memory.add(state, action, reward, next_state, done)
 
-            if episode >  warmup_episode:
-                agent.train()
-                
-            state = next_state
-            total_reward += reward
-            # total_step += 1
+                if episode >  warmup_episode:
+                    agent.train()
+                    
+                state = next_state
+                total_reward += reward
+                # total_step += 1
 
+            # print(f"Episode {episode + 1} Reward: {total_reward:.2f}")
+            reward_history.append(total_reward)
 
-        # print(f"Episode {episode + 1} Reward: {total_reward:.2f}")
-        reward_history.append(total_reward)
+            if (episode + 1) % 20 == 0:
+                # torch.save(agent.model.state_dict(), f"checkpoints/sac_{episode+1}.pth")
+                agent.save(f"checkpoints/sac_{episode+1}")
+                avg_reward = np.mean(reward_history[-20:])
+                print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, velocity: {vel:.2f}')
 
-        if (episode + 1) % 20 == 0:
-            # torch.save(agent.model.state_dict(), f"checkpoints/sac_{episode+1}.pth")
-            agent.save(f"checkpoints/sac_{episode+1}")
-            avg_reward = np.mean(reward_history[-20:])
-            print(f"Episode {episode + 1}/{num_episodes}, Avg Reward: {avg_reward:.4f}")
-
+                if (episode + 1) % 500 == 0:
+                    print("=== Evaluation across all tasks ===")
+                    for test_name, test_env in trained_tasks:
+                        mean_r, std_r = evaluate_agent(agent, test_env, episodes=5)
+                        print(f"Velocity: [{test_name:.2f}] avg reward: {mean_r:.2f} ± {std_r:.2f}")

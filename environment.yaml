@@ -1,0 +1,28 @@
+name: mujoco
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - numpy==1.24.4
+  - matplotlib
+  - mpi4py
+  - python-dateutil
+  - pyyaml
+  - yaml
+  - pytorch=2.1.0  # 或 2.2.0、2.3.0 (可依 CUDA 12.1 支援版本調整)
+  - torchvision
+  - torchaudio
+  - pip:
+      - gym==0.15.7
+      - mujoco==2.3.2
+      - tensorboard==2.10.0
+      - tensorboard-data-server==0.6.1
+      - tensorboard-plugin-wit==1.8.1
+      - tensorboardx==2.2
+      - tqdm==4.62.3
+      - wandb
+      - gymnasium
+      - imageio
