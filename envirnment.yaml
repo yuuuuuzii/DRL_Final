@@ -29,3 +29,5 @@ dependencies:
     - tensorboardx==2.2
     - tqdm==4.62.3
     - wandb
+    - gymnasium
+    - imageio
