@@ -42,77 +42,50 @@ class Decoder(nn.Module):
         return self.net(embedding)
     
 class HyperNetwork(nn.Module):
-    def __init__(self, latent_dim, hidden_dim):
+    def __init__(self, latent_dim, trunk_dim=1024):
         super().__init__()
 
-        self.actor_fc1 = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+        # Shared trunk
+        self.trunk = nn.Sequential(
+            nn.Linear(latent_dim, trunk_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1152),
-        )
-        self.actor_fc2 = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim),
+            nn.Linear(trunk_dim, trunk_dim),
             nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160),
-        )
-        self.actor_mean = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim),
-            nn.ReLU(),
-            nn.Linear(2*hidden_dim, 390),
-        )
-        self.actor_log_std = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 390),
         )
 
-        self.critic_q11 = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1536), 
-        )
-        self.critic_q12  = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160), 
-        )
-        self.critic_q13  = nn.Sequential(
-            nn.Linear(latent_dim, 16), 
-            nn.ReLU(),
-            nn.Linear(16, 65), 
-        )
+        # Actor head outputs
+        self.actor_fc1_head     = nn.Linear(trunk_dim, 1152)  # 64 * state_dim + 64 (bias)
+        self.actor_fc2_head     = nn.Linear(trunk_dim, 4160)  # 64 * 64 + 64 (bias)
+        self.actor_mean_head    = nn.Linear(trunk_dim, 390)   # action_dim * 64 + action_dim
+        self.actor_logstd_head  = nn.Linear(trunk_dim, 390)
 
-        self.critic_q21 = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1536), 
-        )
-        self.critic_q22  = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160), 
-        )
-        self.critic_q23  = nn.Sequential(
-            nn.Linear(latent_dim, 16), 
-            nn.ReLU(),
-            nn.Linear(16, 65), 
-        )
+        # Critic Q1 heads
+        self.critic_q1_fc1_head = nn.Linear(trunk_dim, 1536)  # 64 * (state+action) + 64
+        self.critic_q1_fc2_head = nn.Linear(trunk_dim, 4160)
+        self.critic_q1_fc3_head = nn.Linear(trunk_dim, 65)    # 1 * 64 + 1
 
-    ## 這邊吃encoder task後產生的embedding
+        # Critic Q2 heads
+        self.critic_q2_fc1_head = nn.Linear(trunk_dim, 1536)
+        self.critic_q2_fc2_head = nn.Linear(trunk_dim, 4160)
+        self.critic_q2_fc3_head = nn.Linear(trunk_dim, 65)
+
     def forward(self, embedding):
-        actor_fc1  = self.actor_fc1(embedding)
-        actor_fc2  = self.actor_fc2(embedding)
-        actor_mean  = self.actor_mean(embedding)
-        actor_log_std = self.actor_log_std(embedding)
+        h = self.trunk(embedding)
 
-        critic_q11 = self.critic_q11(embedding)
-        critic_q12 = self.critic_q12(embedding)
-        critic_q13 = self.critic_q13(embedding)
+        actor_fc1     = self.actor_fc1_head(h)
+        actor_fc2     = self.actor_fc2_head(h)
+        actor_mean    = self.actor_mean_head(h)
+        actor_log_std = self.actor_logstd_head(h)
 
-        critic_q21 = self.critic_q21(embedding)
-        critic_q22 = self.critic_q22(embedding)
-        critic_q23 = self.critic_q23(embedding)
-        return actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23
+        critic_q1_fc1 = self.critic_q1_fc1_head(h)
+        critic_q1_fc2 = self.critic_q1_fc2_head(h)
+        critic_q1_fc3 = self.critic_q1_fc3_head(h)
+
+        critic_q2_fc1 = self.critic_q2_fc1_head(h)
+        critic_q2_fc2 = self.critic_q2_fc2_head(h)
+        critic_q2_fc3 = self.critic_q2_fc3_head(h)
+
+        return actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q1_fc1, critic_q1_fc2, critic_q1_fc3, critic_q2_fc1, critic_q2_fc2, critic_q2_fc3
     
 class JointFailureWrapper(Wrapper):
     def __init__(self, env, failed_joint):
