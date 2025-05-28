@@ -248,8 +248,8 @@ class SACAgent:
         self.update_freq = 1
 
         # hypernet part
-        self.hidden_dim = 4096
-        self.latent_dim = 1024
+        self.hidden_dim = 512
+        self.latent_dim = 256
         self.encoder = Encoder(state_dim, action_dim, self.hidden_dim, self.latent_dim).to(self.device)
         self.decoder = Decoder(self.latent_dim, self.hidden_dim , state_dim + action_dim + 1 + state_dim).to(self.device)
         self.hypernet = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
