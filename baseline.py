@@ -35,11 +35,10 @@ def weights_init_(m):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 512)
-        self.fc2 = nn.Linear(512, 512)
-        self.fc3 = nn.Linear(512, 512)
-        self.mean = nn.Linear(512, action_dim)
-        self.log_std = nn.Linear(512, action_dim)
+        self.fc1 = nn.Linear(state_dim, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.mean = nn.Linear(64, action_dim)
+        self.log_std = nn.Linear(64, action_dim)
 
         self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
         self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
@@ -70,22 +69,18 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
         self.q1 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 512),
+            nn.Linear(state_dim + action_dim, 64),
             nn.ReLU(),
-            nn.Linear(512, 512),
+            nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(64, 1)
         )
         self.q2 = nn.Sequential(
-             nn.Linear(state_dim + action_dim, 512),
+            nn.Linear(state_dim + action_dim, 64),
             nn.ReLU(),
-            nn.Linear(512, 512),
+            nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(64, 1)
         )
 
         self.apply(weights_init_)
