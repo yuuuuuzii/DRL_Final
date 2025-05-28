@@ -135,32 +135,43 @@ def weights_init_(m):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.mean = nn.Linear(64, action_dim)
-        self.log_std = nn.Linear(64, action_dim)
+        self.state_dim = state_dim
+        self.action_dim = action_dim
 
         self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
         self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
 
         self.apply(weights_init_)
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mean = self.mean(x)
-        log_std = self.log_std(x).clamp(-20, 2)
+    def forward(self, state, actor_fc1, actor_fc2, actor_mean, actor_log_std):
+        w1 = actor_fc1[:self.state_dim * 64].view(64, self.state_dim)
+        b1 = actor_fc1[self.state_dim * 64:]
+        x = F.linear(state, w1, b1)
+        x = F.relu(x)
+
+        w2 = actor_fc2[:64 * 64].view(64, 64)
+        b2 = actor_fc2[64 * 64:]
+        x = F.linear(x, w2, b2)
+        x = F.relu(x)
+
+        w_m = actor_mean[:self.action_dim * 64].view(self.action_dim, 64)
+        b_m = actor_mean[self.action_dim * 64:]
+        mean = F.linear(x, w_m, b_m)
+
+        w_s = actor_log_std[:self.action_dim * 64].view(self.action_dim, 64)
+        b_s = actor_log_std[self.action_dim * 64:]
+        log_std = F.linear(x, w_s, b_s).clamp(-20, 2)
         std = torch.exp(log_std)
         return mean, std
 
-    def sample(self, state):
-        mean, std = self.forward(state)
+    def sample(self, state, actor_fc1, actor_fc2, actor_mean, actor_log_std):
+        mean, std = self.forward(state, actor_fc1, actor_fc2, actor_mean, actor_log_std)
         normal = Normal(mean, std)
-        x_t = normal.rsample() 
+        x_t = normal.rsample()
         y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
         log_prob = normal.log_prob(x_t)
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-7)
+        log_prob = log_prob - torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-7)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
@@ -168,26 +179,28 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
-        self.q1 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
-        )
-        self.q2 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
-        )
+        self.in_dim = state_dim + action_dim
 
-        self.apply(weights_init_)
+    def q_forward(self, sa, critic_fc1, critic_fc2, critic_fc3):
+        w1 = critic_fc1[:self.in_dim * 64].view(64, self.in_dim)
+        b1 = critic_fc1[self.in_dim * 64:]
+        x = F.linear(sa, w1, b1)
+        x = F.relu(x)
 
-    def forward(self, state, action):
-        sa = torch.cat([state, action], dim=-1).to(torch.float32)
-        return self.q1(sa), self.q2(sa)
+        w2 = critic_fc2[:64 * 64].view(64, 64)
+        b2 = critic_fc2[64 * 64:]
+        x = F.linear(x, w2, b2)
+        x = F.relu(x)
+
+        w3 = critic_fc3[:64 * 1].view(1, 64)
+        b3 = critic_fc3[64 * 1:]
+        q = F.linear(x, w3, b3)
+        return q
+    
+    def forward(self, sa, q1_fc1, q1_fc2, q1_fc3, q2_fc1, q2_fc2, q2_fc3):
+            q1 = self.q_forward(sa, q1_fc1, q1_fc2, q1_fc3)
+            q2 = self.q_forward(sa, q2_fc1, q2_fc2, q2_fc3)
+            return q1, q2
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -222,10 +235,7 @@ class SACAgent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.actor = Actor(state_dim, action_dim, action_space, self.device).to(self.device)
         self.critic = Critic(state_dim, action_dim).to(self.device)
-        self.critic_target = Critic(state_dim, action_dim).to(self.device)
-        self.critic_target.load_state_dict(self.critic.state_dict())
-        # self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
-        # self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=3e-4)
+
         self.log_alpha = torch.tensor(-1.0, dtype=torch.float32, requires_grad=True, device=self.device)
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=1e-4)
 
@@ -242,9 +252,9 @@ class SACAgent:
         self.latent_dim = 1024
         self.encoder = Encoder(state_dim, action_dim, self.hidden_dim, self.latent_dim).to(self.device)
         self.decoder = Decoder(self.latent_dim, self.hidden_dim , state_dim + action_dim + 1 + state_dim).to(self.device)
-        print("actor params:", self.count_params(self.actor))
-        print("critic params:", self.count_params(self.critic))
         self.hypernet = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
+        self.hypernet_target = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
+        self.hypernet_target.load_state_dict(self.hypernet.state_dict())
         
         self.optimizer_encoder = optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr=3e-4)
         self.optimizer_hyper = optim.Adam(self.hypernet.parameters(), lr=8e-4)
@@ -257,7 +267,7 @@ class SACAgent:
         return self.log_alpha.exp()
 
     def select_action(self, state, deterministic=False):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device).unsqueeze(0)
+        obs_tensor = torch.tensor(state, dtype=torch.float32).to(self.device).unsqueeze(0)
 
         # 抽幾組出來算embedding
         state, action, reward, next_state, done = self.memory.sample(30)
@@ -268,89 +278,71 @@ class SACAgent:
             embeddings = self.encoder(state, action, reward, next_state)
             embedding = torch.mean(embeddings, dim=0)
             # 重建actor係數
-            actor_fc1, actor_fc2, actor_mean, actor_log_std, _, _, _, _, _, _ = self.hypernet(embedding)
-            vector_to_parameters(actor_fc1, self.actor.fc1.parameters())
-            vector_to_parameters(actor_fc2, self.actor.fc2.parameters())
-            vector_to_parameters(actor_mean, self.actor.mean.parameters())
-            vector_to_parameters(actor_log_std, self.actor.log_std.parameters())
+            out = self.hypernet(embedding)
+            actor_fc1, actor_fc2, actor_mean, actor_log_std, *_ = [o.squeeze(0) for o in out]
 
             if deterministic:
-                _, _, action = self.actor.sample(state)
+                _, _, action = self.actor.sample(obs_tensor, actor_fc1, actor_fc2, actor_mean, actor_log_std)
             else:
-                action, _, _ = self.actor.sample(state)
+                action, _, _ = self.actor.sample(obs_tensor, actor_fc1, actor_fc2, actor_mean, actor_log_std)
         return action.detach().cpu().numpy()[0]
-
+    
     def train(self):
         state, action, reward, next_state, done = self.memory.sample(self.batch_size)
         state, action, reward, next_state, done = [x.to(self.device) for x in (state, action, reward, next_state, done)]
+
         embeddings = self.encoder(state, action, reward, next_state)
         recon = self.decoder(embeddings)
         L_recon = F.mse_loss(recon, torch.cat([state, action, reward.unsqueeze(1), next_state], dim=-1))
-
-        avg_embedding = torch.mean(embeddings, dim=0, keepdim=True)  # shape: [1, D]
-         
-        actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23 = self.hypernet(avg_embedding) # [B, 1]一組填入係數即可
-        actor_fc1     = actor_fc1.squeeze(0)
-        actor_fc2     = actor_fc2.squeeze(0)
-        actor_mean    = actor_mean.squeeze(0)
-        actor_log_std = actor_log_std.squeeze(0)
-
-        critic_q11 = critic_q11.squeeze(0)
-        critic_q12 = critic_q12.squeeze(0)
-        critic_q13 = critic_q13.squeeze(0)
-
-        critic_q21 = critic_q21.squeeze(0)
-        critic_q22 = critic_q22.squeeze(0)
-        critic_q23 = critic_q23.squeeze(0)
-
-        
-        vector_to_parameters(actor_fc1,     list(self.actor.fc1.parameters()))
-        vector_to_parameters(actor_fc2,     list(self.actor.fc2.parameters()))
-        vector_to_parameters(actor_mean,    list(self.actor.mean.parameters()))
-        vector_to_parameters(actor_log_std, list(self.actor.log_std.parameters()))
-
-        vector_to_parameters(critic_q11, list(self.critic.q1[0].parameters())) 
-        vector_to_parameters(critic_q12, list(self.critic.q1[2].parameters()))  
-        vector_to_parameters(critic_q13, list(self.critic.q1[4].parameters()))  
-
-        vector_to_parameters(critic_q21, list(self.critic.q2[0].parameters()))  
-        vector_to_parameters(critic_q22, list(self.critic.q2[2].parameters()))  
-        vector_to_parameters(critic_q23, list(self.critic.q2[4].parameters()))
-
-        with torch.no_grad():
-            next_action, log_prob, _ = self.actor.sample(next_state)
-            target_q1, target_q2 = self.critic_target(next_state, next_action)
-            target_q = torch.min(target_q1, target_q2) - self.alpha * log_prob
-            y = reward + self.gamma * (1 - done) * target_q.squeeze(-1)
-
-        q1, q2 = self.critic(state, action)
-        critic_loss = F.mse_loss(q1.squeeze(-1), y) + F.mse_loss(q2.squeeze(-1), y)
 
         self.optimizer_encoder.zero_grad()
         L_recon.backward()
         self.optimizer_encoder.step()
 
-        new_action, log_prob, _ = self.actor.sample(state)
-        q1_pi, q2_pi = self.critic(state, new_action)
+        avg_embedding = torch.mean(embeddings, dim=0, keepdim=True).detach()  # shape: [1, D], ##這邊先更新，因為擔心會被後面的graph影響到
+        output = self.hypernet(avg_embedding) # [B, 1]一組填入係數即可
+        actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23 = [o.squeeze(0) for o in output]
+
+        with torch.no_grad():
+            next_action, log_prob, _ = self.actor.sample(next_state, actor_fc1, actor_fc2, actor_mean, actor_log_std)
+            out_target = self.hypernet_target(avg_embedding)
+            _, _, _, _, target_q11, target_q12, target_q13, target_q21, target_q22, target_q23 = [o.squeeze(0) for o in out_target]
+            nsa = torch.cat([next_state, next_action], dim = -1)
+            target_q1, target_q2 = self.critic(nsa, target_q11, target_q12, target_q13, target_q21, target_q22, target_q23)
+            target_q = torch.min(target_q1, target_q2) - self.alpha * log_prob
+            y = reward + self.gamma * (1 - done) * target_q.squeeze(-1)
+
+
+        sa = torch.cat([state, action], dim = -1)
+        q1, q2 = self.critic(sa, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23)
+        critic_loss = F.mse_loss(q1.squeeze(-1), y) + F.mse_loss(q2.squeeze(-1), y)
+
+        new_action, log_prob, _ = self.actor.sample(state, actor_fc1, actor_fc2, actor_mean, actor_log_std)
+        sna = torch.cat([state, new_action], dim = -1)
+        q1_pi, q2_pi = self.critic(sna, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23)
         actor_loss = (self.alpha * log_prob - torch.min(q1_pi, q2_pi)).mean()
         
-        
-        self.optimizer_hyper.zero_grad()
-        critic_loss.backward(retain_graph=True) 
-        for name, param in self.hypernet.named_parameters():
-            if "critic" in name:
-                param.grad = param.grad  # 保留 critic 部分梯度
-            else:
-                param.grad = None        # 清空其他 block 梯度
-        self.optimizer_hyper.step()
+        # self.optimizer_hyper.zero_grad()
+        # critic_loss.backward(retain_graph=True) 
+        # for name, param in self.hypernet.named_parameters():
+        #     if "critic" in name:
+        #         param.grad = param.grad  # 保留 critic 部分梯度
+        #     else:
+        #         param.grad = None        # 清空其他 block 梯度
+        # self.optimizer_hyper.step()
+
+        # with torch.autograd.set_detect_anomaly(True):
+        #     self.optimizer_hyper.zero_grad()
+        #     actor_loss.backward()
+        #     for name, param in self.hypernet.named_parameters():
+        #         if "actor" in name:
+        #             param.grad = param.grad
+        #         else:
+        #             param.grad = None
+        #     self.optimizer_hyper.step()
 
         self.optimizer_hyper.zero_grad()
-        actor_loss.backward()
-        for name, param in self.hypernet.named_parameters():
-            if "actor" in name:
-                param.grad = param.grad
-            else:
-                param.grad = None
+        (critic_loss + actor_loss).backward()
         self.optimizer_hyper.step()
 
         alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
@@ -360,7 +352,7 @@ class SACAgent:
 
         self.train_step +=1
         if self.train_step % self.update_freq == 0:
-            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+            for param, target_param in zip(self.hypernet.parameters(), self.hypernet_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
     
     def save(self, path_prefix):
