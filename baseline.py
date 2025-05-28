@@ -15,7 +15,7 @@ from halfcheetah_vel_env import HalfCheetahVelEnv
 
 
 class JointFailureWrapper(Wrapper):
-    def __init__(self, env, failed_joint: int):
+    def __init__(self, env, failed_joint):
         if not hasattr(env, 'reward_range'):
             env.reward_range = (-np.inf, np.inf)
         super().__init__(env)
@@ -118,6 +118,9 @@ class ReplayBuffer:
         dones = torch.stack(dones)
 
         return states, actions, rewards, next_states, dones
+    
+    def clear(self):
+        self.buffer.clear()
 
 class SACAgent:
     def __init__(self, state_dim, action_dim, action_space):
@@ -199,10 +202,7 @@ class SACAgent:
         self.actor.load_state_dict(checkpoint['actor'])
 
 def evaluate_agent(agent, env, episodes=5):
-    """
-    Run `episodes` evaluation episodes on `env` with `agent` (no exploration noise).
-    Returns mean and std of total rewards.
-    """
+
     rewards = []
     for _ in range(episodes):
         state, _ = env.reset()
@@ -218,20 +218,22 @@ def evaluate_agent(agent, env, episodes=5):
         rewards.append(total_reward)
     return np.mean(rewards), np.std(rewards)
      
-
 if __name__ == "__main__":
     
     target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    failed_joints     = [0, 2, 4 ,6]
+    failed_joints     = [1, 3, 5]
     env_list = []
+    env = gym.make('HalfCheetah-v4')
+    env_list.append((f'HalfCheetah_joint_normal', env))
+
     for joint in failed_joints:
 
         env = gym.make('HalfCheetah-v4')
 
         env = JointFailureWrapper(env, failed_joint=joint)
 
-        name = f'HalfCheetah_joint{joint:.1f}'
+        name = f'HalfCheetah_joint{joint}'
         env_list.append((name, env))
     # base_env = HalfCheetahVelEnv()
     # tasks    = base_env.sample_tasks(num_tasks=5)    # 比如取 5 種速度
@@ -247,7 +249,7 @@ if __name__ == "__main__":
   
     agent = SACAgent(state_dim, action_dim, env.action_space)
     # agent.load(load_path, train=True)
-    num_episodes = 1000
+    num_episodes = 200
     reward_history = [] 
     warmup_episode = 50
     trained_tasks = []
@@ -255,6 +257,7 @@ if __name__ == "__main__":
     for name, env in env_list:
         print(f"Training on failure joint = {name}")
         trained_tasks.append((name, env))
+        agent.memory.clear()
         for episode in range(num_episodes):
             state, _ = env.reset()
             total_reward = 0
@@ -287,8 +290,8 @@ if __name__ == "__main__":
                 avg_reward = np.mean(reward_history[-20:])
                 print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
-                if (episode + 1) % 500 == 0:
+                if (episode + 1) % 100 == 0:
                     print("=== Evaluation across all tasks ===")
                     for test_name, test_env in trained_tasks:
                         mean_r, std_r = evaluate_agent(agent, test_env, episodes=5)
-                        print(f"Velocity: [{test_name:.2f}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
+                        print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
