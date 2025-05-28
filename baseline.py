@@ -35,7 +35,7 @@ def weights_init_(m):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, )
+        self.fc1 = nn.Linear(state_dim, 512)
         self.fc2 = nn.Linear(512, 512)
         self.fc3 = nn.Linear(512, 512)
         self.mean = nn.Linear(512, action_dim)
@@ -221,30 +221,27 @@ def evaluate_agent(agent, env, episodes=5):
 
 if __name__ == "__main__":
     
-    # target_velocities = [0.5, 1.0, 1.5]
-    # # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    # # failed_joints     = [0, 2, 4]
-    # env_list = []
-    # for vel in target_velocities:
-    #     #for joint in failed_joints:
-    #         # 建立原始環境
-    #     env = gym.make('HalfCheetah-v4')
-    #     # 套入速度追蹤 Wrapper
-    #     env = VelocityWrapper(env, target_velocity=vel)
-    #     # 套入關節失效 Wrapper
-    #     # env = JointFailureWrapper(env, failed_joint=joint)
-    #     # 把 (名稱, 環境) 存起來
-    #     name = f'HalfCheetah_vel{vel:.1f}'
-    #     env_list.append((name, env))
-    base_env = HalfCheetahVelEnv()
-    tasks    = base_env.sample_tasks(num_tasks=5)    # 比如取 5 種速度
+    target_velocities = [0.5, 1.0, 1.5]
+    # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
+    failed_joints     = [0, 2, 4 ,6]
+    env_list = []
+    for joint in failed_joints:
+
+        env = gym.make('HalfCheetah-v4')
+
+        env = JointFailureWrapper(env, failed_joint=joint)
+
+        name = f'HalfCheetah_joint{joint:.1f}'
+        env_list.append((name, env))
+    # base_env = HalfCheetahVelEnv()
+    # tasks    = base_env.sample_tasks(num_tasks=5)    # 比如取 5 種速度
 
     # 2) 為每個 task 建立一個 env 實例
-    envs = []
-    for task in tasks:
-        env = HalfCheetahVelEnv(task)
-        env.reset()      # 會設置 _goal_vel
-        envs.append((task['velocity'], env))
+    # envs = []
+    # for task in tasks:
+    #     env = HalfCheetahVelEnv(task)
+    #     env.reset()      # 會設置 _goal_vel
+    #     envs.append((task['velocity'], env))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
   
@@ -255,9 +252,9 @@ if __name__ == "__main__":
     warmup_episode = 50
     trained_tasks = []
 
-    for vel, env in envs:
-        print(f"Training on target velocity = {vel:.2f}")
-        trained_tasks.append((vel, env))
+    for name, env in env_list:
+        print(f"Training on failure joint = {name}")
+        trained_tasks.append((name, env))
         for episode in range(num_episodes):
             state, _ = env.reset()
             total_reward = 0
@@ -288,7 +285,7 @@ if __name__ == "__main__":
                 # torch.save(agent.model.state_dict(), f"checkpoints/sac_{episode+1}.pth")
                 agent.save(f"checkpoints/sac_{episode+1}")
                 avg_reward = np.mean(reward_history[-20:])
-                print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, velocity: {vel:.2f}')
+                print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
                 if (episode + 1) % 500 == 0:
                     print("=== Evaluation across all tasks ===")
