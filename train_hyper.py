@@ -15,7 +15,7 @@ from torch.nn.utils import vector_to_parameters
 from clfd.imitation_cl.model.hypernetwork import HyperNetwork, TargetNetwork, calc_delta_theta, calc_fix_target_reg, get_current_targets
 from torch.distributions import Normal
 from tqdm import tqdm
-
+import ipdb
 torch.autograd.set_detect_anomaly(True)
 
 # Define a fixed Normal object
@@ -30,8 +30,6 @@ normal_entropy = FixedNormal.entropy
 FixedNormal.entropy = lambda self: normal_entropy(self).sum(-1)
 
 FixedNormal.mode = lambda self: self.mean
-
-
 
 class Encoder(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
@@ -61,6 +59,7 @@ class Decoder(nn.Module):
     def forward(self, embedding):
         return self.net(embedding)
 
+##接收target network的output, 然後這個module的參數也是hypernet給的
 class FunctionalDiagGaussian(nn.Module):
     """DiagGaussian implementation using Functional interface so we can update weights via the hnet."""
     def __init__(self, num_inputs, num_outputs):
@@ -79,80 +78,6 @@ class FunctionalDiagGaussian(nn.Module):
         action_mean = F.linear(x, self.weights['fc_weight'], bias=self.weights['fc_bias'])
         action_logstd = self.weights['logstd_bias']
         return FixedNormal(action_mean, action_logstd.exp())
-
-
-# class HyperNetwork(nn.Module):
-#     def __init__(self, latent_dim, hidden_dim):
-#         super().__init__()
-
-#         self.actor_fc1 = nn.Sequential(
-#             nn.Linear(latent_dim, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, 2304),
-#         )
-#         self.actor_fc2 = nn.Sequential(
-#             nn.Linear(latent_dim, 2*hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(2*hidden_dim, 16512),
-#         )
-#         self.actor_mean = nn.Sequential(
-#             nn.Linear(latent_dim, 2*hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(2*hidden_dim, 774),
-#         )
-#         self.actor_log_std = nn.Sequential(
-#             nn.Linear(latent_dim, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, 774),
-#         )
-
-        # self.critic_q11 = nn.Sequential(
-        #     nn.Linear(latent_dim, hidden_dim), 
-        #     nn.ReLU(),
-        #     nn.Linear(hidden_dim, 1536), 
-        # )
-        # self.critic_q12  = nn.Sequential(
-        #     nn.Linear(latent_dim, 2*hidden_dim), 
-        #     nn.ReLU(),
-        #     nn.Linear(2*hidden_dim, 4160), 
-        # )
-        # self.critic_q13  = nn.Sequential(
-        #     nn.Linear(latent_dim, 16), 
-        #     nn.ReLU(),
-        #     nn.Linear(16, 65), 
-        # )
-
-        # self.critic_q21 = nn.Sequential(
-        #     nn.Linear(latent_dim, hidden_dim), 
-        #     nn.ReLU(),
-        #     nn.Linear(hidden_dim, 1536), 
-        # )
-        # self.critic_q22  = nn.Sequential(
-        #     nn.Linear(latent_dim, 2*hidden_dim), 
-        #     nn.ReLU(),
-        #     nn.Linear(2*hidden_dim, 4160), 
-        # )
-        # self.critic_q23  = nn.Sequential(
-        #     nn.Linear(latent_dim, 16), 
-        #     nn.ReLU(),
-        #     nn.Linear(16, 65), 
-        # )
-
-    ## 這邊吃encoder task後產生的embedding
-    # def forward(self, embedding):
-    #     actor_fc1  = self.actor_fc1(embedding)
-    #     actor_fc2  = self.actor_fc2(embedding)
-    #     actor_mean  = self.actor_mean(embedding)
-    #     actor_log_std = self.actor_log_std(embedding)
-
-    #     # critic_q11 = self.critic_q11(embedding)
-    #     # critic_q12 = self.critic_q12(embedding)
-    #     # critic_q13 = self.critic_q13(embedding)
-
-    #     # critic_q21 = self.critic_q21(embedding)
-    #     # critic_q22 = self.critic_q22(embedding)
-    #     # critic_q23 = self.critic_q23(embedding)
-    #     return actor_fc1, actor_fc2, actor_mean, actor_log_std #, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23
     
 class JointFailureWrapper(Wrapper):
     def __init__(self, env, failed_joint):
@@ -173,38 +98,38 @@ def weights_init_(m):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
-class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.mean = nn.Linear(128, action_dim)
-        self.log_std = nn.Linear(128, action_dim)
+# class Actor(nn.Module):
+#     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
+#         super(Actor, self).__init__()
+#         self.fc1 = nn.Linear(state_dim, 128)
+#         self.fc2 = nn.Linear(128, 128)
+#         self.mean = nn.Linear(128, action_dim)
+#         self.log_std = nn.Linear(128, action_dim)
 
-        self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
-        self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
+#         self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
+#         self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
 
-        self.apply(weights_init_)
+#         self.apply(weights_init_)
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mean = self.mean(x)
-        log_std = self.log_std(x).clamp(-20, 2)
-        std = torch.exp(log_std)
-        return mean, std
+#     def forward(self, x):
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         mean = self.mean(x)
+#         log_std = self.log_std(x).clamp(-20, 2)
+#         std = torch.exp(log_std)
+#         return mean, std
 
-    def sample(self, state):
-        mean, std = self.forward(state)
-        normal = Normal(mean, std)
-        x_t = normal.rsample() 
-        y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-7)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+#     def sample(self, state):
+#         mean, std = self.forward(state)
+#         normal = Normal(mean, std)
+#         x_t = normal.rsample() 
+#         y_t = torch.tanh(x_t)
+#         action = y_t * self.action_scale + self.action_bias
+#         log_prob = normal.log_prob(x_t)
+#         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-7)
+#         log_prob = log_prob.sum(1, keepdim=True)
+#         mean = torch.tanh(mean) * self.action_scale + self.action_bias
+#         return action, log_prob, mean
       
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
@@ -227,7 +152,11 @@ class Critic(nn.Module):
         self.apply(weights_init_)
 
     def forward(self, state, action):
-        action = torch.tensor(action, dtype=torch.float32).to("cuda" if torch.cuda.is_available() else "cpu")
+        if isinstance(action, np.ndarray):
+            action = torch.from_numpy(action.astype(np.float32))
+        elif isinstance(action, torch.Tensor):
+            action = action.clone().detach().float()
+        action = action.to("cuda" if torch.cuda.is_available() else "cpu")
         sa = torch.cat([state, action], dim=-1).to(torch.float32)
         return self.q1(sa), self.q2(sa)
 
@@ -287,16 +216,17 @@ class SACAgent:
         self.beta = 0.01  # regularization loss scaling factor
 
         # hypernet part
-        self.hidden_dim = 4096
-        self.latent_dim = 1024
+        self.hidden_dim = 256
+     
         self.output_a_dim = TargetNetwork.weight_shapes(n_in=state_dim, n_out=128, hidden_layers=[128, 128])
         self.output_dims_dist = [[action_dim, 128], [action_dim], [action_dim]]
         self.task_id = 0
         self.tasks_trained = 0
-        self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, 
+        self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, ##輸出的形狀
                                      layers=[self.hidden_dim] * 2, te_dim=8, device=self.device).to(self.device)
-        self.hypernet.gen_new_task_emb()
-        self.targets = get_current_targets(self.task_id, self.hypernet)
+        
+        self.hypernet.gen_new_task_emb() #建立task id的embedding
+        self.targets = get_current_targets(self.task_id, self.hypernet) ##之前network的參數
 
         self.enc_opt = optim.Adam([self.hypernet.get_task_emb(self.task_id)], lr=3e-4)
         self.hyper_opt = optim.Adam(list(self.hypernet.theta), lr=8e-4)
@@ -320,7 +250,12 @@ class SACAgent:
         return self.log_alpha.exp()
 
     def select_action(self, state, deterministic=False):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device).unsqueeze(0)
+        if isinstance(state, np.ndarray): ##直接選時
+            state = torch.from_numpy(state.astype(np.float32))
+        elif isinstance(state, torch.Tensor): ##從buffer sample出來後
+            state = state.clone().detach().float()
+
+        state = state.to(self.device).unsqueeze(0)
         # actor 基本上是個feature extractor，然後 dist 是個分布
         with torch.no_grad():
             generated_weights = self.hypernet(self.task_id)
@@ -371,20 +306,24 @@ class SACAgent:
         critic_loss.backward()
         self.critic_opt.step()
 
-        dTheta = None
 
-        # Find out the candidate change (dTheta) in trainable parameters (theta) of the hnet
-        # This function just computes the change (dTheta), but does not apply it
-        dTheta = calc_delta_theta(self.hyper_opt, use_sgd_change=False, detach_dt=True)
+        loss_reg = torch.tensor(0.0, device=self.device)
+        calc_reg = self.task_id > 0 and self.beta > 0
+        if calc_reg:
+            dTheta = None
 
-        # Calculate the regularization loss using dTheta
-        # This implements the second part of equation 2
-        loss_reg = calc_fix_target_reg(self.hypernet, self.task_id, targets=self.targets, dTheta=dTheta)
+            # Find out the candidate change (dTheta) in trainable parameters (theta) of the hnet
+            # This function just computes the change (dTheta), but does not apply it
+            dTheta = calc_delta_theta(self.hyper_opt, use_sgd_change=False, detach_dt=True)
 
-        # Multiply the regularization loss with the scaling factor
-        loss_reg *= self.beta
-        loss_reg.backward()
-        self.hyper_opt.step()
+            # Calculate the regularization loss using dTheta
+            # This implements the second part of equation 2
+            loss_reg = calc_fix_target_reg(self.hypernet, self.task_id, targets=self.targets, dTheta=dTheta)
+
+            # Multiply the regularization loss with the scaling factor
+            loss_reg *= self.beta
+            loss_reg.backward()
+            self.hyper_opt.step()
         
         alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
         self.alpha_optimizer.zero_grad()
