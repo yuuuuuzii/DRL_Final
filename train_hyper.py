@@ -221,8 +221,8 @@ class SACAgent:
         self.update_freq = 1
 
         # hypernet part
-        self.hidden_dim = 512
-        self.latent_dim = 256
+        self.hidden_dim = 1024
+        self.latent_dim = 1024
         self.encoder = Encoder(state_dim, action_dim, self.hidden_dim, self.latent_dim).to(self.device)
         self.decoder = Decoder(self.latent_dim, self.hidden_dim , state_dim + action_dim + 1 + state_dim).to(self.device)
         self.hypernet = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
@@ -230,7 +230,20 @@ class SACAgent:
         self.hypernet_target.load_state_dict(self.hypernet.state_dict())
         
         self.optimizer_encoder = optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr=3e-4)
-        self.optimizer_hyper = optim.Adam(self.hypernet.parameters(), lr=8e-4)
+        actor_params = []
+        critic_params = []
+        for name, p in self.hypernet.named_parameters():
+            if name.startswith("trunk"):
+                actor_params.append(p)
+                critic_params.append(p)
+            elif name.startswith("actor_"):
+                actor_params.append(p)
+            else:
+                critic_params.append(p)
+
+        # 两个 Optimizer：一个只更新 actor_params，一个只更新 critic_params
+        self.optimizer_hyper_actor  = torch.optim.Adam(actor_params,  lr=8e-4)
+        self.optimizer_hyper_critic = torch.optim.Adam(critic_params, lr=8e-4)
 
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
@@ -290,33 +303,24 @@ class SACAgent:
         q1, q2 = self.critic(sa, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23)
         critic_loss = F.mse_loss(q1.squeeze(-1), y) + F.mse_loss(q2.squeeze(-1), y)
 
-        new_action, log_prob, _ = self.actor.sample(state, actor_fc1, actor_fc2, actor_mean, actor_log_std)
+        self.optimizer_hyper_critic.zero_grad()
+        critic_loss.backward()
+        self.optimizer_hyper_critic.step()
+
+
+        new_output = self.hypernet(avg_embedding)
+        n_actor_fc1, n_actor_fc2, n_actor_mean, n_actor_log_std, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23 = [o2.squeeze(0) for o2 in new_output]
+        new_action, log_prob, _ = self.actor.sample(state, n_actor_fc1, n_actor_fc2, n_actor_mean, n_actor_log_std)
         sna = torch.cat([state, new_action], dim = -1)
-        q1_pi, q2_pi = self.critic(sna, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23)
+
+        with torch.no_grad():
+            q1_pi, q2_pi = self.critic(sna, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23)
         actor_loss = (self.alpha * log_prob - torch.min(q1_pi, q2_pi)).mean()
         
-        # self.optimizer_hyper.zero_grad()
-        # critic_loss.backward(retain_graph=True) 
-        # for name, param in self.hypernet.named_parameters():
-        #     if "critic" in name:
-        #         param.grad = param.grad  # 保留 critic 部分梯度
-        #     else:
-        #         param.grad = None        # 清空其他 block 梯度
-        # self.optimizer_hyper.step()
-
-        # with torch.autograd.set_detect_anomaly(True):
-        #     self.optimizer_hyper.zero_grad()
-        #     actor_loss.backward()
-        #     for name, param in self.hypernet.named_parameters():
-        #         if "actor" in name:
-        #             param.grad = param.grad
-        #         else:
-        #             param.grad = None
-        #     self.optimizer_hyper.step()
-
-        self.optimizer_hyper.zero_grad()
-        (critic_loss + actor_loss).backward()
-        self.optimizer_hyper.step()
+        # —— 更新 Actor Head —— 
+        self.optimizer_hyper_actor.zero_grad()
+        actor_loss.backward()
+        self.optimizer_hyper_actor.step()
 
         alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
         self.alpha_optimizer.zero_grad()
