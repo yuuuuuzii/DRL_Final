@@ -12,7 +12,9 @@ import pickle
 import sys
 from gym import Wrapper
 from torch.nn.utils import vector_to_parameters
-import ipdb
+torch.autograd.set_detect_anomaly(True)
+# import ipdb
+
 class Encoder(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
         super().__init__()
@@ -48,55 +50,55 @@ class HyperNetwork(nn.Module):
         self.actor_fc1 = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1152),
+            nn.Linear(hidden_dim, 2304),
         )
         self.actor_fc2 = nn.Sequential(
             nn.Linear(latent_dim, 2*hidden_dim),
             nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160),
+            nn.Linear(2*hidden_dim, 16512),
         )
         self.actor_mean = nn.Sequential(
             nn.Linear(latent_dim, 2*hidden_dim),
             nn.ReLU(),
-            nn.Linear(2*hidden_dim, 390),
+            nn.Linear(2*hidden_dim, 774),
         )
         self.actor_log_std = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 390),
+            nn.Linear(hidden_dim, 774),
         )
 
-        self.critic_q11 = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1536), 
-        )
-        self.critic_q12  = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160), 
-        )
-        self.critic_q13  = nn.Sequential(
-            nn.Linear(latent_dim, 16), 
-            nn.ReLU(),
-            nn.Linear(16, 65), 
-        )
+        # self.critic_q11 = nn.Sequential(
+        #     nn.Linear(latent_dim, hidden_dim), 
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, 1536), 
+        # )
+        # self.critic_q12  = nn.Sequential(
+        #     nn.Linear(latent_dim, 2*hidden_dim), 
+        #     nn.ReLU(),
+        #     nn.Linear(2*hidden_dim, 4160), 
+        # )
+        # self.critic_q13  = nn.Sequential(
+        #     nn.Linear(latent_dim, 16), 
+        #     nn.ReLU(),
+        #     nn.Linear(16, 65), 
+        # )
 
-        self.critic_q21 = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1536), 
-        )
-        self.critic_q22  = nn.Sequential(
-            nn.Linear(latent_dim, 2*hidden_dim), 
-            nn.ReLU(),
-            nn.Linear(2*hidden_dim, 4160), 
-        )
-        self.critic_q23  = nn.Sequential(
-            nn.Linear(latent_dim, 16), 
-            nn.ReLU(),
-            nn.Linear(16, 65), 
-        )
+        # self.critic_q21 = nn.Sequential(
+        #     nn.Linear(latent_dim, hidden_dim), 
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, 1536), 
+        # )
+        # self.critic_q22  = nn.Sequential(
+        #     nn.Linear(latent_dim, 2*hidden_dim), 
+        #     nn.ReLU(),
+        #     nn.Linear(2*hidden_dim, 4160), 
+        # )
+        # self.critic_q23  = nn.Sequential(
+        #     nn.Linear(latent_dim, 16), 
+        #     nn.ReLU(),
+        #     nn.Linear(16, 65), 
+        # )
 
     ## 這邊吃encoder task後產生的embedding
     def forward(self, embedding):
@@ -105,14 +107,14 @@ class HyperNetwork(nn.Module):
         actor_mean  = self.actor_mean(embedding)
         actor_log_std = self.actor_log_std(embedding)
 
-        critic_q11 = self.critic_q11(embedding)
-        critic_q12 = self.critic_q12(embedding)
-        critic_q13 = self.critic_q13(embedding)
+        # critic_q11 = self.critic_q11(embedding)
+        # critic_q12 = self.critic_q12(embedding)
+        # critic_q13 = self.critic_q13(embedding)
 
-        critic_q21 = self.critic_q21(embedding)
-        critic_q22 = self.critic_q22(embedding)
-        critic_q23 = self.critic_q23(embedding)
-        return actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23
+        # critic_q21 = self.critic_q21(embedding)
+        # critic_q22 = self.critic_q22(embedding)
+        # critic_q23 = self.critic_q23(embedding)
+        return actor_fc1, actor_fc2, actor_mean, actor_log_std #, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23
     
 class JointFailureWrapper(Wrapper):
     def __init__(self, env, failed_joint):
@@ -123,8 +125,9 @@ class JointFailureWrapper(Wrapper):
 
     def step(self, action):
         a = np.array(action, copy=True)
-        a[self.failed_joint[0]] = 0.0
-        a[self.failed_joint[1]] = 0.0
+        # a[self.failed_joint[0]] = 0.0
+        # a[self.failed_joint[1]] = 0.0
+        a[self.failed_joint] = 0.0
         return self.env.step(a)
 
 def weights_init_(m):
@@ -135,10 +138,10 @@ def weights_init_(m):
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_space=None, device='cuda'):
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.mean = nn.Linear(64, action_dim)
-        self.log_std = nn.Linear(64, action_dim)
+        self.fc1 = nn.Linear(state_dim, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.mean = nn.Linear(128, action_dim)
+        self.log_std = nn.Linear(128, action_dim)
 
         self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
         self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
@@ -169,18 +172,18 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
         self.q1 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 64),
+            nn.Linear(state_dim + action_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(128, 1)
         )
         self.q2 = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 64),
+            nn.Linear(state_dim + action_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(128, 1)
         )
 
         self.apply(weights_init_)
@@ -224,6 +227,8 @@ class SACAgent:
         self.critic = Critic(state_dim, action_dim).to(self.device)
         self.critic_target = Critic(state_dim, action_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
+        self.critic_opt = optim.Adam(self.critic.parameters(), lr=3e-4)
+
         # self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
         # self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=3e-4)
         self.log_alpha = torch.tensor(-1.0, dtype=torch.float32, requires_grad=True, device=self.device)
@@ -268,7 +273,7 @@ class SACAgent:
             embeddings = self.encoder(state, action, reward, next_state)
             embedding = torch.mean(embeddings, dim=0)
             # 重建actor係數
-            actor_fc1, actor_fc2, actor_mean, actor_log_std, _, _, _, _, _, _ = self.hypernet(embedding)
+            actor_fc1, actor_fc2, actor_mean, actor_log_std = self.hypernet(embedding)
             vector_to_parameters(actor_fc1, self.actor.fc1.parameters())
             vector_to_parameters(actor_fc2, self.actor.fc2.parameters())
             vector_to_parameters(actor_mean, self.actor.mean.parameters())
@@ -287,21 +292,25 @@ class SACAgent:
         recon = self.decoder(embeddings)
         L_recon = F.mse_loss(recon, torch.cat([state, action, reward.unsqueeze(1), next_state], dim=-1))
 
+        self.optimizer_encoder.zero_grad()
+        L_recon.backward()
+        self.optimizer_encoder.step()
+
         avg_embedding = torch.mean(embeddings, dim=0, keepdim=True)  # shape: [1, D]
          
-        actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23 = self.hypernet(avg_embedding) # [B, 1]一組填入係數即可
+        actor_fc1, actor_fc2, actor_mean, actor_log_std = self.hypernet(avg_embedding.detach()) # [B, 1]一組填入係數即可
         actor_fc1     = actor_fc1.squeeze(0)
         actor_fc2     = actor_fc2.squeeze(0)
         actor_mean    = actor_mean.squeeze(0)
         actor_log_std = actor_log_std.squeeze(0)
 
-        critic_q11 = critic_q11.squeeze(0)
-        critic_q12 = critic_q12.squeeze(0)
-        critic_q13 = critic_q13.squeeze(0)
+        # critic_q11 = critic_q11.squeeze(0)
+        # critic_q12 = critic_q12.squeeze(0)
+        # critic_q13 = critic_q13.squeeze(0)
 
-        critic_q21 = critic_q21.squeeze(0)
-        critic_q22 = critic_q22.squeeze(0)
-        critic_q23 = critic_q23.squeeze(0)
+        # critic_q21 = critic_q21.squeeze(0)
+        # critic_q22 = critic_q22.squeeze(0)
+        # critic_q23 = critic_q23.squeeze(0)
 
         
         vector_to_parameters(actor_fc1,     list(self.actor.fc1.parameters()))
@@ -309,48 +318,33 @@ class SACAgent:
         vector_to_parameters(actor_mean,    list(self.actor.mean.parameters()))
         vector_to_parameters(actor_log_std, list(self.actor.log_std.parameters()))
 
-        vector_to_parameters(critic_q11, list(self.critic.q1[0].parameters())) 
-        vector_to_parameters(critic_q12, list(self.critic.q1[2].parameters()))  
-        vector_to_parameters(critic_q13, list(self.critic.q1[4].parameters()))  
+        # vector_to_parameters(critic_q11, list(self.critic.q1[0].parameters())) 
+        # vector_to_parameters(critic_q12, list(self.critic.q1[2].parameters()))  
+        # vector_to_parameters(critic_q13, list(self.critic.q1[4].parameters()))  
 
-        vector_to_parameters(critic_q21, list(self.critic.q2[0].parameters()))  
-        vector_to_parameters(critic_q22, list(self.critic.q2[2].parameters()))  
-        vector_to_parameters(critic_q23, list(self.critic.q2[4].parameters()))
+        # vector_to_parameters(critic_q21, list(self.critic.q2[0].parameters()))  
+        # vector_to_parameters(critic_q22, list(self.critic.q2[2].parameters()))  
+        # vector_to_parameters(critic_q23, list(self.critic.q2[4].parameters()))
 
         with torch.no_grad():
             next_action, log_prob, _ = self.actor.sample(next_state)
             target_q1, target_q2 = self.critic_target(next_state, next_action)
             target_q = torch.min(target_q1, target_q2) - self.alpha * log_prob
-            y = reward + self.gamma * (1 - done) * target_q.squeeze(-1)
+            y = reward + self.gamma * (1 - done) * target_q.squeeze(-1).detach()
 
         q1, q2 = self.critic(state, action)
         critic_loss = F.mse_loss(q1.squeeze(-1), y) + F.mse_loss(q2.squeeze(-1), y)
 
-        self.optimizer_encoder.zero_grad()
-        L_recon.backward()
-        self.optimizer_encoder.step()
-
+        self.critic_opt.zero_grad()
+        critic_loss.backward() 
+        self.critic_opt.step()
+        
         new_action, log_prob, _ = self.actor.sample(state)
         q1_pi, q2_pi = self.critic(state, new_action)
         actor_loss = (self.alpha * log_prob - torch.min(q1_pi, q2_pi)).mean()
         
-        
-        self.optimizer_hyper.zero_grad()
-        critic_loss.backward(retain_graph=True) 
-        for name, param in self.hypernet.named_parameters():
-            if "critic" in name:
-                param.grad = param.grad  # 保留 critic 部分梯度
-            else:
-                param.grad = None        # 清空其他 block 梯度
-        self.optimizer_hyper.step()
-
         self.optimizer_hyper.zero_grad()
         actor_loss.backward()
-        for name, param in self.hypernet.named_parameters():
-            if "actor" in name:
-                param.grad = param.grad
-            else:
-                param.grad = None
         self.optimizer_hyper.step()
 
         alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
@@ -365,11 +359,29 @@ class SACAgent:
     
     def save(self, path_prefix):
         os.makedirs(os.path.dirname(path_prefix), exist_ok=True)
-        torch.save({'actor': self.actor.state_dict(),}, f"{path_prefix}_model.pth")
+        # torch.save({'actor': self.actor.state_dict(),}, f"{path_prefix}_model.pth")
+        torch.save({
+            'actor': self.actor.state_dict(),
+            'critic': self.critic.state_dict(),
+            'critic_target': self.critic_target.state_dict(),
+            'log_alpha': self.log_alpha,
+            'encoder': self.encoder.state_dict(),
+            'decoder': self.decoder.state_dict(),
+            'hypernet': self.hypernet.state_dict(),
+        }, f"{path_prefix}_model.pth")
 
     def load(self, path_prefix):
-        checkpoint = torch.load(f"{path_prefix}_model.pth", map_location=torch.device('cpu'))
+        # checkpoint = torch.load(f"{path_prefix}_model.pth", map_location=torch.device('cpu'))
+        # self.actor.load_state_dict(checkpoint['actor'])
+        checkpoint = torch.load(f"{path_prefix}_model.pth", map_location=self.device)
         self.actor.load_state_dict(checkpoint['actor'])
+        self.critic.load_state_dict(checkpoint['critic'])
+        self.critic_target.load_state_dict(checkpoint['critic_target'])
+        self.log_alpha = checkpoint['log_alpha']
+        self.encoder.load_state_dict(checkpoint['encoder'])
+        self.decoder.load_state_dict(checkpoint['decoder'])
+        self.hypernet.load_state_dict(checkpoint['hypernet'])
+        
 
 def evaluate_agent(agent, env, episodes=5):
 
@@ -392,7 +404,8 @@ if __name__ == "__main__":
     
     target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    failed_joints     = [(1, 3) , (2, 5), (0, 4)]
+    # failed_joints     = [(1, 3) , (2, 5), (0, 4)]
+    failed_joints = [1, 3, 5]  # HalfCheetah-v4 有 6 個 actuator
     env_list = []
     env = gym.make('HalfCheetah-v4')
     env_list.append((f'HalfCheetah_joint_normal', env))
