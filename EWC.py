@@ -133,7 +133,7 @@ class SACAgent:
         self.update_freq = 1
 
         # EWC settings
-        self.ewc_lambda = 2500.0
+        self.ewc_lambda = 5000.0
         self.ewc_tasks = []  # list of {'params':..., 'fishers':...}
 
     @property
