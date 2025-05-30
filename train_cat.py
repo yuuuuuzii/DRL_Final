@@ -303,14 +303,13 @@ class SACAgent:
 
 def evaluate_agent(agent, env, episodes=5, context_size=100, random_ctx=True):
     device = agent.device
-    # 1) 收集 context transitions
-    ctx_states, ctx_actions, ctx_rewards, ctx_nexts, ctx_dones = [], [], [], [], []
+    # === Step 1: 收集 context transitions ===
+    ctx_states, ctx_actions, ctx_rewards, ctx_nexts = [], [], [], []
     s, _ = env.reset()
     for _ in range(context_size):
         if random_ctx:
             a = env.action_space.sample()
         else:
-            # 用当前 policy，也可以选择 deterministic=True
             a = agent.select_action(s, deterministic=True)
         s2, r, term, trunc, _ = env.step(a)
         done = term or trunc
@@ -319,37 +318,34 @@ def evaluate_agent(agent, env, episodes=5, context_size=100, random_ctx=True):
         ctx_actions.append(torch.tensor(a,  dtype=torch.float32))
         ctx_rewards.append(torch.tensor(r,  dtype=torch.float32))
         ctx_nexts.append(torch.tensor(s2,   dtype=torch.float32))
-        ctx_dones.append(torch.tensor(done, dtype=torch.int32))
 
         s = s2
         if done:
             s, _ = env.reset()
 
-    # 拼 batch，送 encoder
-    ctx_states   = torch.stack(ctx_states).to(device)
-    ctx_actions  = torch.stack(ctx_actions).to(device)
-    ctx_rewards  = torch.stack(ctx_rewards).unsqueeze(-1).to(device)
-    ctx_nexts    = torch.stack(ctx_nexts).to(device)
-    # ctx_dones   = torch.stack(ctx_dones).to(device)  # encoder 通常不用 done
+    # === Step 2: 準備 context 並送入 encoder ===
+    ctx_states  = torch.stack(ctx_states).to(device)
+    ctx_actions = torch.stack(ctx_actions).to(device)
+    ctx_rewards = torch.stack(ctx_rewards).unsqueeze(-1).to(device)
+    ctx_nexts   = torch.stack(ctx_nexts).to(device)
+
+    context = torch.cat([ctx_states, ctx_actions, ctx_rewards, ctx_nexts], dim=-1)  # [K, D]
+    context = context.unsqueeze(0)  # [1, K, D]
 
     with torch.no_grad():
-        ctx_z_all = agent.encoder(ctx_states, ctx_actions, ctx_rewards, ctx_nexts)  # [K, latent_dim]
-        avg_z     = ctx_z_all.mean(dim=0, keepdim=True)                            # [1, latent_dim]
+        task_probs, _, task_info = agent.encoder(context)  # task_info: [1, latent_dim]
 
-    # 2) 用这个 avg_z 去跑完整的 episodes
+    # === Step 3: Evaluation Episodes ===
     rewards = []
     for _ in range(episodes):
         state, _ = env.reset()
         total_reward = 0.0
         done = False
         while not done:
-            # 直接调用 actor，不再 sample buffer
-            state_tensor = torch.tensor(state, dtype=torch.float32).to(device).unsqueeze(0)
-            # 这里我们绕过 select_action 的 buffer sampling，直接用 actor.sample
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
             with torch.no_grad():
-                action, _, _ = agent.actor.sample(state_tensor, avg_z)
+                action, _, _ = agent.actor.sample(state_tensor, task_info)
             action = action.cpu().numpy()[0]
-
             next_state, reward, term, trunc, _ = env.step(action)
             done = term or trunc
             state = next_state
