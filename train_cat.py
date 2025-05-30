@@ -334,7 +334,7 @@ def evaluate_agent(agent, env, episodes=5, context_size=100, random_ctx=True):
 
     with torch.no_grad():
         task_probs, _, task_info = agent.encoder(context)  # task_info: [1, latent_dim]
-
+        task_info = F.one_hot(task_probs.argmax(dim=-1), num_classes=4).float()
     # === Step 3: Evaluation Episodes ===
     rewards = []
     for _ in range(episodes):
