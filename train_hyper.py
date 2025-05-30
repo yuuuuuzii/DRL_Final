@@ -12,7 +12,7 @@ import pickle
 import sys
 from gym import Wrapper
 from torch.nn.utils import vector_to_parameters
-from clfd.imitation_cl.model.hypernetwork import HyperNetwork, TargetNetwork, calc_delta_theta, calc_fix_target_reg, get_current_targets
+from clfd.imitation_cl.model.hypernetwork import HyperNetwork, TargetNetwork, ChunkedHyperNetwork, calc_delta_theta, calc_fix_target_reg, get_current_targets, str_to_ints
 from torch.distributions import Normal
 from tqdm import tqdm
 import ipdb
@@ -216,15 +216,21 @@ class SACAgent:
         self.beta = 0.01  # regularization loss scaling factor
 
         # hypernet part
-        self.hidden_dim = 256
+        self.hidden_dim = 1024
      
         self.output_a_dim = TargetNetwork.weight_shapes(n_in=state_dim, n_out=128, hidden_layers=[128, 128])
         self.output_dims_dist = [[action_dim, 128], [action_dim], [action_dim]]
         self.task_id = 0
         self.tasks_trained = 0
-        self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, ##輸出的形狀
-                                     layers=[self.hidden_dim] * 2, te_dim=8, device=self.device).to(self.device)
-        
+        # self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, ##輸出的形狀
+        #                              layers=[self.hidden_dim] * 2, te_dim=8, device=self.device).to(self.device)
+        self.hypernet = ChunkedHyperNetwork(final_target_shapes= self.output_a_dim+  self.output_dims_dist ,
+                        layers=[self.hidden_dim] * 2,
+                        chunk_dim=1000,
+                        te_dim=5,
+                        ce_dim=5,
+                        dropout_rate=-1.0,
+                        device= self.device).to(self.device)
         self.hypernet.gen_new_task_emb() #建立task id的embedding
         self.targets = get_current_targets(self.task_id, self.hypernet) ##之前network的參數
 
