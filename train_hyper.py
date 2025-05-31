@@ -15,7 +15,7 @@ from torch.nn.utils import vector_to_parameters
 from clfd.imitation_cl.model.hypernetwork import HyperNetwork, TargetNetwork, calc_delta_theta, calc_fix_target_reg, get_current_targets
 from torch.distributions import Normal
 from tqdm import tqdm
-import ipdb
+# import ipdb
 torch.autograd.set_detect_anomaly(True)
 
 # Define a fixed Normal object
@@ -187,9 +187,14 @@ class ReplayBuffer:
     
     def clear(self):
         self.buffer.clear()
+    
+    def __len__(self):
+        return len(self.buffer)
 
 class SACAgent:
     def __init__(self, state_dim, action_dim, action_space):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.actor = Actor(state_dim, action_dim, action_space, self.device).to(self.device)
         self.actor = TargetNetwork(n_in=state_dim, n_out=128, hidden_layers=[128, 128], 
@@ -223,7 +228,7 @@ class SACAgent:
         self.task_id = 0
         self.tasks_trained = 0
         self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, ##輸出的形狀
-                                     layers=[self.hidden_dim] * 2, te_dim=8, device=self.device).to(self.device)
+                                     layers=[self.hidden_dim * 10] * 2, te_dim=8, device=self.device).to(self.device)
         
         self.hypernet.gen_new_task_emb() #建立task id的embedding
         self.targets = get_current_targets(self.task_id, self.hypernet) ##之前network的參數
@@ -235,8 +240,8 @@ class SACAgent:
         return sum(p.numel() for p in module.parameters())
     
     def reset_critic(self):
-        self.critic = Critic(self.actor.state_dim, self.actor.action_dim).to(self.device)
-        self.critic_target = Critic(self.actor.state_dim, self.actor.action_dim).to(self.device)
+        self.critic = Critic(self.state_dim, self.action_dim).to(self.device)
+        self.critic_target = Critic(self.state_dim, self.action_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_opt = optim.Adam(self.critic.parameters(), lr=3e-4)
 
@@ -264,9 +269,10 @@ class SACAgent:
             features, _ = self.actor(state)
             dist = self.dist(features)
             if deterministic:
-                action = dist.mode
+                action = dist.mode()
             else:
-                action = dist.sample()
+                x_t = dist.rsample()                    # (batch_size, action_dim)
+                action = torch.tanh(x_t)                   # also (batch_size, action_dim)
         return action.detach().cpu().numpy()[0]
 
     def train(self):
@@ -298,9 +304,12 @@ class SACAgent:
         loss = critic_loss + actor_loss
 
         self.enc_opt.zero_grad()
-        self.hyper_opt.zero_grad()
-        loss.backward(retain_graph=True)
+        loss.backward(retain_graph=True, create_graph=False)
         self.enc_opt.step()
+        
+        self.hyper_opt.zero_grad()
+        actor_loss.backward()
+        self.hyper_opt.step()
 
         self.critic_opt.zero_grad()
         critic_loss.backward()
@@ -419,9 +428,10 @@ if __name__ == "__main__":
         trained_tasks.append((task_id, name, env))
         agent.memory.clear()
         agent.task_id = task_id
-        agent.enc_opt = optim.Adam([agent.hypernet.get_task_emb(task_id)], lr=3e-4)
+        agent.reset_critic()
         if agent.tasks_trained < task_id:
             agent.add_task()
+            agent.enc_opt = optim.Adam([agent.hypernet.get_task_emb(task_id)], lr=3e-4)
             print(f"Adding new task {task_id} to agent")
         
         for episode in tqdm(range(num_episodes)):
@@ -440,7 +450,7 @@ if __name__ == "__main__":
                 done = terminated or truncated
                 agent.memory.add(state, action, reward, next_state, done)
 
-                if episode >  warmup_episode:
+                if len(agent.memory) > agent.batch_size:
                     agent.train()
                     
                 state = next_state
