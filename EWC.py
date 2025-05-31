@@ -133,7 +133,7 @@ class SACAgent:
         self.update_freq = 1
 
         # EWC settings
-        self.ewc_lambda = 10000
+        self.ewc_lambda = 20000
         self.ewc_tasks = []  # list of {'params':..., 'fishers':...}
 
     @property
@@ -246,7 +246,7 @@ def evaluate_agent(agent, env, episodes=5):
 
 if __name__ == "__main__":
     target_velocities = [0.5, 1.0, 1.5]
-    failed_joints = [(1, 3), (2, 5), (0, 4)]
+    failed_joints = [(2, 5), (0, 4)]
     env_list = [( 'HalfCheetah_joint_normal', gym.make('HalfCheetah-v4'))]
     for joint in failed_joints:
         env_list.append((f'HalfCheetah_joint{joint}', JointFailureWrapper(gym.make('HalfCheetah-v4'), failed_joint=joint)))
@@ -256,7 +256,7 @@ if __name__ == "__main__":
     agent = SACAgent(state_dim, action_dim, env_list[0][1].action_space)
     num_episodes = 200
     warmup_episode = 50
-
+    task_id = 0
     for name, env in env_list:
         print(f"Training on task: {name}")
         agent.memory.clear()
@@ -287,3 +287,4 @@ if __name__ == "__main__":
         for t_name, t_env in env_list[:env_list.index((name, env))+1]:
             m, s = evaluate_agent(agent, t_env)
             print(f"Task: {t_name}, AvgReward: {m:.2f} \u00B1 {s:.2f}")
+    
