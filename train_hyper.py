@@ -228,13 +228,13 @@ class SACAgent:
         self.task_id = 0
         self.tasks_trained = 0
         self.hypernet = HyperNetwork(self.output_a_dim+self.output_dims_dist, ##輸出的形狀
-                                     layers=[self.hidden_dim * 10] * 2, te_dim=8, device=self.device).to(self.device)
+                                     layers=[self.hidden_dim * 10] * 2, te_dim=128, device=self.device).to(self.device)
         
         self.hypernet.gen_new_task_emb() #建立task id的embedding
         self.targets = get_current_targets(self.task_id, self.hypernet) ##之前network的參數
 
         self.enc_opt = optim.Adam([self.hypernet.get_task_emb(self.task_id)], lr=3e-4)
-        self.hyper_opt = optim.Adam(list(self.hypernet.theta), lr=8e-4)
+        self.hyper_opt = optim.Adam(list(self.hypernet.theta), lr=3e-4)
 
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
@@ -254,6 +254,26 @@ class SACAgent:
     def alpha(self):
         return self.log_alpha.exp()
 
+    def sample_actions(self, state):
+        if isinstance(state, np.ndarray): ##直接選時
+            state = torch.from_numpy(state.astype(np.float32))
+        elif isinstance(state, torch.Tensor): ##從buffer sample出來後
+            state = state.clone().detach().float()
+
+        state = state.to(self.device).unsqueeze(0)
+        # actor 基本上是個feature extractor，然後 dist 是個分布
+        with torch.no_grad():
+            generated_weights = self.hypernet(self.task_id)
+            self.actor.set_weights(generated_weights[:len(self.output_a_dim)])
+            self.dist.set_weights(generated_weights[len(self.output_a_dim):])
+            features, _ = self.actor(state)
+            dist = self.dist(features)
+            x_t = dist.rsample()                    # (batch_size, action_dim)
+            action = torch.tanh(x_t) 
+        log_prob = dist.log_prob(x_t)  # (batch_size, action_dim)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)  # (batch_size, 1)
+        return action.squeeze(0), log_prob.squeeze(0)
+
     def select_action(self, state, deterministic=False):
         if isinstance(state, np.ndarray): ##直接選時
             state = torch.from_numpy(state.astype(np.float32))
@@ -269,11 +289,11 @@ class SACAgent:
             features, _ = self.actor(state)
             dist = self.dist(features)
             if deterministic:
-                action = dist.mode()
+                x_t = dist.mode()
             else:
                 x_t = dist.rsample()                    # (batch_size, action_dim)
-                action = torch.tanh(x_t)                   # also (batch_size, action_dim)
-        return action.detach().cpu().numpy()[0]
+            action = torch.tanh(x_t) 
+        return action.squeeze(0).cpu().numpy()
 
     def train(self):
         state, action, reward, next_state, done = self.memory.sample(self.batch_size)
@@ -283,33 +303,34 @@ class SACAgent:
         self.dist.set_weights(generated_weights[len(self.output_a_dim):])
 
         with torch.no_grad():
-            features, _ = self.actor(state)
-            dist = self.dist(features)
-            log_prob = dist.log_prob(action).unsqueeze(-1)
-            next_action = self.select_action(next_state, deterministic=False)
+            # features, _ = self.actor(state)
+            # dist = self.dist(features)
+            # log_prob = dist.log_prob(action).unsqueeze(-1)
+            next_action, next_log_probs = self.sample_actions(next_state)
             target_q1, target_q2 = self.critic_target(next_state, next_action)
-            target_q = torch.min(target_q1, target_q2) - self.alpha * log_prob.mean()
+            target_q = torch.min(target_q1, target_q2) - self.alpha * next_log_probs
             y = reward + self.gamma * (1 - done) * target_q.squeeze(-1).detach()
 
         q1, q2 = self.critic(state, action)
         critic_loss = F.mse_loss(q1.squeeze(-1), y) + F.mse_loss(q2.squeeze(-1), y)
         
-        new_action = self.select_action(state, deterministic=False)
-        new_action = torch.tensor(new_action, dtype=torch.float32).to(self.device)
-        new_features, _ = self.actor(state)
-        log_prob = self.dist(new_features).log_prob(new_action).unsqueeze(-1)
+        new_action, new_log_probs = self.sample_actions(state)
+        # new_action = torch.tensor(new_action, dtype=torch.float32).to(self.device)
+        # new_features, _ = self.actor(state)
+        # log_prob = self.dist(new_features).log_prob(new_action).unsqueeze(-1)
         q1_pi, q2_pi = self.critic(state, new_action)
-        actor_loss = (self.alpha * log_prob.mean() - torch.min(q1_pi, q2_pi)).mean()
+        actor_loss = (self.alpha * new_log_probs - torch.min(q1_pi, q2_pi)).mean()
 
-        loss = critic_loss + actor_loss
+        # loss = critic_loss + actor_loss
 
         self.enc_opt.zero_grad()
-        loss.backward(retain_graph=True, create_graph=False)
-        self.enc_opt.step()
-        
         self.hyper_opt.zero_grad()
         actor_loss.backward()
-        self.hyper_opt.step()
+        self.enc_opt.step()
+        
+        
+        # actor_loss.backward()
+        # self.hyper_opt.step()
 
         self.critic_opt.zero_grad()
         critic_loss.backward()
@@ -334,7 +355,7 @@ class SACAgent:
             loss_reg.backward()
             self.hyper_opt.step()
         
-        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        alpha_loss = -(self.log_alpha * (new_log_probs + self.target_entropy).detach()).mean()
         self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
         self.alpha_optimizer.step()
