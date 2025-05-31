@@ -219,8 +219,6 @@ class SACAgent:
         self.train_step = 0
         self.update_freq = 1
 
-
-
         # self.hidden_dim = 512
         # context_dim = state_dim + action_dim + 1 + state_dim
         # self.encoder = Encoder(context_dim, self.hidden_dim, embedding_dim, self.num_tasks).to(self.device)

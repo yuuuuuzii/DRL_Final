@@ -16,7 +16,6 @@ def weights_init_(m):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
-
 class JointFailureWrapper(Wrapper):
     def __init__(self, env, failed_joint):
         if not hasattr(env, 'reward_range'):
@@ -287,4 +286,3 @@ if __name__ == "__main__":
         for t_name, t_env in env_list[:env_list.index((name, env))+1]:
             m, s = evaluate_agent(agent, t_env)
             print(f"Task: {t_name}, AvgReward: {m:.2f} \u00B1 {s:.2f}")
-    

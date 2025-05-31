@@ -13,34 +13,47 @@ import sys
 from gym import Wrapper
 from torch.nn.utils import vector_to_parameters
 import ipdb
-class Encoder(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(state_dim + action_dim + 1 + state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, latent_dim),
-        )
-    def forward(self, state, action, reward, next_state):
-        # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
-        # decide whether to unsqueeze reward
-        if reward.ndim == 1:
-            reward = reward.unsqueeze(-1)
-        x = torch.cat([state, action, reward, next_state], dim=-1)
-        embedding = self.net(x)
-        return embedding
+# class Encoder(nn.Module):
+#     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
+#         super().__init__()
+#         self.net = nn.Sequential(
+#             nn.Linear(state_dim + action_dim + 1 + state_dim, hidden_dim),
+#             nn.ReLU(),
+#             nn.Linear(hidden_dim, latent_dim),
+#         )
+#     def forward(self, state, action, reward, next_state):
+#         # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
+#         # decide whether to unsqueeze reward
+#         if reward.ndim == 1:
+#             reward = reward.unsqueeze(-1)
+#         x = torch.cat([state, action, reward, next_state], dim=-1)
+#         embedding = self.net(x)
+#         return embedding
 
-class Decoder(nn.Module):
-    def __init__(self, latent_dim, hidden_dim, recon_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, recon_dim),
-        )
-    def forward(self, embedding):
-        return self.net(embedding)
-    
+# class Decoder(nn.Module):
+#     def __init__(self, latent_dim, hidden_dim, recon_dim):
+#         super().__init__()
+#         self.net = nn.Sequential(
+#             nn.Linear(latent_dim, hidden_dim),
+#             nn.ReLU(),
+#             nn.Linear(hidden_dim, recon_dim),
+#         )
+#     def forward(self, embedding):
+#         return self.net(embedding)
+TASK_ENCODING_TABLE = torch.tensor([
+    [1, 0, 0, 0, 1, 0, 0, 0],  # task 0
+    [0, 1, 0, 0, 0, 1, 0, 0],  # task 1
+    [0, 0, 1, 0, 0, 0, 1, 0],  # task 2
+], dtype=torch.float32)
+
+def get_task_encoding(task_id: int, batch_size=None, device='cuda'):
+    """取得指定 task_id 對應的 encoding 向量"""
+    encoding = TASK_ENCODING_TABLE[task_id].to(device)
+    if batch_size is not None:
+        encoding = encoding.unsqueeze(0).expand(batch_size, -1)  # shape: [B, D]
+    return encoding   
+
+
 class HyperNetwork(nn.Module):
     def __init__(self, latent_dim, trunk_dim=1024):
         super().__init__()
@@ -222,12 +235,12 @@ class SACAgent:
 
         # hypernet part
         self.hidden_dim = 64
-        self.latent_dim = 64
+        self.latent_dim = 8
         # self.encoder = Encoder(state_dim, action_dim, self.hidden_dim, self.latent_dim).to(self.device)
         # self.decoder = Decoder(self.latent_dim, self.hidden_dim , state_dim + action_dim + 1 + state_dim).to(self.device)
         self.num_tasks = 4
 
-        self.task_embedding = nn.Embedding(self.num_tasks, self.latent_dim).to(self.device)
+        # self.task_embedding = nn.Embedding(self.num_tasks, self.latent_dim).to(self.device)
         self.hypernet = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
         self.hypernet_target = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
         self.hypernet_target.load_state_dict(self.hypernet.state_dict())
@@ -245,8 +258,8 @@ class SACAgent:
                 critic_params.append(p)
 
         # 两个 Optimizer：一个只更新 actor_params，一个只更新 critic_params
-        self.optimizer_hyper_actor  = torch.optim.Adam(list(self.task_embedding.parameters())+ actor_params,  lr=8e-4)
-        self.optimizer_hyper_critic = torch.optim.Adam(list(self.task_embedding.parameters())+ critic_params, lr=8e-4)
+        self.optimizer_hyper_actor  = torch.optim.Adam(actor_params,  lr=8e-4)
+        self.optimizer_hyper_critic = torch.optim.Adam(critic_params, lr=8e-4)
 
     def count_params(self, module):
         return sum(p.numel() for p in module.parameters())
@@ -257,8 +270,7 @@ class SACAgent:
 
     def select_action(self, state, task_id, deterministic=False):
         state = torch.tensor(state, dtype=torch.float32).to(self.device).unsqueeze(0)
-        task_id_tensor = torch.tensor([task_id], dtype=torch.long).to(self.device)
-        task_embed = self.task_embedding(task_id_tensor)
+        task_embed = get_task_encoding(task_id, batch_size=1, device=self.device)
         with torch.no_grad():
             # 重建actor係數
             out = self.hypernet(task_embed)
@@ -271,23 +283,24 @@ class SACAgent:
         return action.detach().cpu().numpy()[0]
     
     def train(self, task_id):
-        task_id_tensor = torch.tensor([task_id], dtype=torch.long).to(self.device)
-        task_embed_critic = self.task_embedding(task_id_tensor)
-        output = self.hypernet(task_embed_critic) # [B, 1]一組填入係數即可
+        state, action, reward, next_state, done = self.memory.sample(self.batch_size)
+        state, action, reward, next_state, done = [x.to(self.device) for x in (state, action, reward, next_state, done)]
+
+        task_embed = get_task_encoding(task_id, batch_size=1, device=self.device)
+        output = self.hypernet(task_embed) # [B, 1]一組填入係數即可
         actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23 = [o.squeeze(0) for o in output]
 
         state, action, reward, next_state, done = self.memory.sample(self.batch_size)
         state, action, reward, next_state, done = [x.to(self.device) for x in (state, action, reward, next_state, done)]
         with torch.no_grad():
             next_action, log_prob, _ = self.actor.sample(next_state, actor_fc1, actor_fc2, actor_mean, actor_log_std)
-            task_embed_target = self.task_embedding(task_id_tensor)
-            out_target = self.hypernet_target(task_embed_target)
+            
+            out_target = self.hypernet_target(task_embed)
             _, _, _, _, target_q11, target_q12, target_q13, target_q21, target_q22, target_q23 = [o.squeeze(0) for o in out_target]
             nsa = torch.cat([next_state, next_action], dim = -1)
             target_q1, target_q2 = self.critic(nsa, target_q11, target_q12, target_q13, target_q21, target_q22, target_q23)
             target_q = torch.min(target_q1, target_q2) - self.alpha * log_prob
             y = reward + self.gamma * (1 - done) * target_q.squeeze(-1)
-
 
         sa = torch.cat([state, action], dim = -1)
         q1, q2 = self.critic(sa, critic_q11, critic_q12, critic_q13, critic_q21, critic_q22, critic_q23)
@@ -297,14 +310,12 @@ class SACAgent:
         critic_loss.backward()
         self.optimizer_hyper_critic.step()
 
-        task_embed_actor = self.task_embedding(task_id_tensor) 
-        new_output = self.hypernet(task_embed_actor)
+        new_output = self.hypernet(task_embed)
         n_actor_fc1, n_actor_fc2, n_actor_mean, n_actor_log_std, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23 = [o2.squeeze(0) for o2 in new_output]
         new_action, log_prob, _ = self.actor.sample(state, n_actor_fc1, n_actor_fc2, n_actor_mean, n_actor_log_std)
         sna = torch.cat([state, new_action], dim = -1)
 
-        with torch.no_grad():
-            q1_pi, q2_pi = self.critic(sna, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23)
+        q1_pi, q2_pi = self.critic(sna, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23)
         actor_loss = (self.alpha * log_prob - torch.min(q1_pi, q2_pi)).mean()
         
         # —— 更新 Actor Head —— 
@@ -351,7 +362,7 @@ if __name__ == "__main__":
     
     target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    failed_joints     = [(1, 3) , (2, 5), (0, 4)]
+    failed_joints     = [(2, 5), (0, 4)]
     env_list = []
     env = gym.make('HalfCheetah-v4')
     env_list.append((f'HalfCheetah_joint_normal', env))
@@ -411,9 +422,9 @@ if __name__ == "__main__":
                 avg_reward = np.mean(reward_history[-20:])
                 print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
-                if (episode + 1) % 100 == 0:
-                    print("=== Evaluation across all tasks ===")
-                    for test_name, test_env in trained_tasks:
-                        mean_r, std_r = evaluate_agent(agent, test_env, task_id, episodes=5)
-                        print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
+
+        print("=== Evaluation across all tasks ===")
+        for id, (test_name, test_env) in enumerate(trained_tasks):
+            mean_r, std_r = evaluate_agent(agent, test_env, id ,episodes=5)
+            print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
         task_id += 1
