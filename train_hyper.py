@@ -13,6 +13,7 @@ import sys
 from gym import Wrapper
 from torch.nn.utils import vector_to_parameters
 import ipdb
+import matplotlib.pyplot as plt
 # class Encoder(nn.Module):
 #     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
 #         super().__init__()
@@ -62,25 +63,25 @@ class HyperNetwork(nn.Module):
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, trunk_dim),
             nn.ReLU(),
-            nn.Linear(trunk_dim, trunk_dim),
+            nn.Linear(trunk_dim, 2*trunk_dim),
             nn.ReLU(),
         )
 
         # Actor head outputs
-        self.actor_fc1_head     = nn.Linear(trunk_dim, 1152)  # 64 * state_dim + 64 (bias)
-        self.actor_fc2_head     = nn.Linear(trunk_dim, 4160)  # 64 * 64 + 64 (bias)
-        self.actor_mean_head    = nn.Linear(trunk_dim, 390)   # action_dim * 64 + action_dim
-        self.actor_logstd_head  = nn.Linear(trunk_dim, 390)
+        self.actor_fc1_head     = nn.Linear(2*trunk_dim, 1152)  # 64 * state_dim + 64 (bias)
+        self.actor_fc2_head     = nn.Linear(2*trunk_dim, 4160)  # 64 * 64 + 64 (bias)
+        self.actor_mean_head    = nn.Linear(2*trunk_dim, 390)   # action_dim * 64 + action_dim
+        self.actor_logstd_head  = nn.Linear(2*trunk_dim, 390)
 
         # Critic Q1 heads
-        self.critic_q1_fc1_head = nn.Linear(trunk_dim, 1536)  # 64 * (state+action) + 64
-        self.critic_q1_fc2_head = nn.Linear(trunk_dim, 4160)
-        self.critic_q1_fc3_head = nn.Linear(trunk_dim, 65)    # 1 * 64 + 1
+        self.critic_q1_fc1_head = nn.Linear(2*trunk_dim, 1536)  # 64 * (state+action) + 64
+        self.critic_q1_fc2_head = nn.Linear(2*trunk_dim, 4160)
+        self.critic_q1_fc3_head = nn.Linear(2*trunk_dim, 65)    # 1 * 64 + 1
 
         # Critic Q2 heads
-        self.critic_q2_fc1_head = nn.Linear(trunk_dim, 1536)
-        self.critic_q2_fc2_head = nn.Linear(trunk_dim, 4160)
-        self.critic_q2_fc3_head = nn.Linear(trunk_dim, 65)
+        self.critic_q2_fc1_head = nn.Linear(2*trunk_dim, 1536)
+        self.critic_q2_fc2_head = nn.Linear(2*trunk_dim, 4160)
+        self.critic_q2_fc3_head = nn.Linear(2*trunk_dim, 65)
 
     def forward(self, embedding):
         h = self.trunk(embedding)
@@ -360,7 +361,6 @@ def evaluate_agent(agent, env, task_id, episodes=5):
      
 if __name__ == "__main__":
     
-    target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
     failed_joints     = [(2, 5), (0, 4)]
     env_list = []
@@ -406,7 +406,7 @@ if __name__ == "__main__":
                 done = terminated or truncated
                 agent.memory.add(state, action, reward, next_state, done)
 
-                if episode >  warmup_episode:
+                if episode > warmup_episode:
                     agent.train(task_id)
                     
                 state = next_state
@@ -425,6 +425,18 @@ if __name__ == "__main__":
 
         print("=== Evaluation across all tasks ===")
         for id, (test_name, test_env) in enumerate(trained_tasks):
-            mean_r, std_r = evaluate_agent(agent, test_env, id ,episodes=5)
+            mean_r, std_r = evaluate_agent(agent, test_env, id ,episodes=10)
             print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
         task_id += 1
+    
+    with open('reward_history_CL.pkl', 'wb') as f:
+        pickle.dump(reward_history, f)
+    plt.plot(reward_history)
+    plt.xlabel('Episodes')
+    plt.ylabel('Total Reward')
+    plt.title('Training Rewards')
+    plt.vlines(x=200, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 1')
+    plt.vlines(x=400, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 2')
+    plt.vlines(x=600, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 3')
+    plt.legend()
+    plt.savefig(f'Training Reward_CL.png')
