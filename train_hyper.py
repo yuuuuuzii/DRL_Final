@@ -359,7 +359,7 @@ if __name__ == "__main__":
             if (episode + 1) % 20 == 0:
                 ckpt_dir = f"checkpoints/task_{i}"
                 os.makedirs(ckpt_dir, exist_ok=True)
-                agent.save(os.path.join(ckpt_dir, f"sac_hypernet2_task{i}_ep{episode+1}"))
+                agent.save(os.path.join(ckpt_dir, f"sac_hypernet_task{i}_ep{episode+1}"))
                 avg_reward = np.mean(reward_history[-20:])
                 print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
