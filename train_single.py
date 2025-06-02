@@ -169,7 +169,6 @@ def evaluate_agent(agent, env, episodes=5):
      
 if __name__ == "__main__":
     
-    # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
     failed_joints     = [ (0, 4), (2, 5)]
     env_list = []
     for joint in failed_joints:

@@ -25,12 +25,11 @@ TASK_ENCODING_TABLE = torch.tensor([
     [1, 0, 0, 0, 1, 0, 0, 0],   # task 0
 ], dtype=torch.float32)
 
-
+# 取得 embedding
 def get_task_encoding(task_id: int, batch_size=None, device='cuda'):
-    """取得指定 task_id 對應的 encoding 向量"""
     encoding = TASK_ENCODING_TABLE[task_id].to(device)
     if batch_size is not None:
-        encoding = encoding.unsqueeze(0).expand(batch_size, -1)  # shape: [B, D]
+        encoding = encoding.unsqueeze(0).expand(batch_size, -1)  #[B, D]
     return encoding   
 
 
@@ -176,16 +175,13 @@ class SACAgent:
         # hypernet part
         self.hidden_dim = 64
         self.latent_dim = 8
-        # self.encoder = Encoder(state_dim, action_dim, self.hidden_dim, self.latent_dim).to(self.device)
-        # self.decoder = Decoder(self.latent_dim, self.hidden_dim , state_dim + action_dim + 1 + state_dim).to(self.device)
         self.num_tasks = 4
 
-        # self.task_embedding = nn.Embedding(self.num_tasks, self.latent_dim).to(self.device)
+  
         self.hypernet = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
         self.hypernet_target = HyperNetwork(self.latent_dim, self.hidden_dim).to(self.device)
         self.hypernet_target.load_state_dict(self.hypernet.state_dict())
         
-        # self.optimizer_encoder = optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr=3e-4)
         actor_params = []
         critic_params = []
         for name, p in self.hypernet.named_parameters():
@@ -197,7 +193,7 @@ class SACAgent:
             else:
                 critic_params.append(p)
 
-        # 两个 Optimizer：一个只更新 actor_params，一个只更新 critic_params
+        # actor_params 跟 critic_params 分開更新
         self.optimizer_hyper_actor  = torch.optim.Adam(actor_params,  lr=8e-4)
         self.optimizer_hyper_critic = torch.optim.Adam(critic_params, lr=8e-4)
 
@@ -258,7 +254,7 @@ class SACAgent:
         q1_pi, q2_pi = self.critic(sna, n_critic_q11, n_critic_q12, n_critic_q13, n_critic_q21, n_critic_q22, n_critic_q23)
         actor_loss = (self.alpha * log_prob - torch.min(q1_pi, q2_pi)).mean()
         
-        # —— 更新 Actor Head —— 
+        # 更新 Actor Head 
         self.optimizer_hyper_actor.zero_grad()
         actor_loss.backward()
         self.optimizer_hyper_actor.step()
@@ -306,7 +302,6 @@ def evaluate_agent(agent, env, task_id, episodes=5):
 
 if __name__ == "__main__":
     
-    # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
     failed_joints = [(0, 4), (2, 5)]
     env_list = []
     for joint in failed_joints:

@@ -23,7 +23,6 @@ class Actor(nn.Module):
         self.log_std = nn.Linear(64, action_dim)
         self.apply(weights_init_)
 
-        # for scaling output
         self.action_scale = torch.tensor((action_space.high - action_space.low) / 2., dtype=torch.float32).to(device)
         self.action_bias = torch.tensor((action_space.high + action_space.low) / 2., dtype=torch.float32).to(device)
 
@@ -95,7 +94,7 @@ class SACAgent:
 
         # EWC settings
         self.ewc_lambda = 20000
-        self.ewc_tasks = []  # list of {'params':..., 'fishers':...}
+        self.ewc_tasks = []  
 
     @property
     def alpha(self):
@@ -109,9 +108,8 @@ class SACAgent:
             else:
                 action, _, _ = self.actor.sample(state)
         return action.detach().cpu().numpy()[0]
-
+    # 計算fisher, 最大化保留參數
     def compute_fisher(self, env, sample_size=1000):
-        # Estimate Fisher information for EWC
         self.actor.eval()
         fishers = {n: torch.zeros_like(p) for n, p in self.actor.named_parameters()}
         for _ in range(sample_size):
@@ -126,7 +124,7 @@ class SACAgent:
                 fishers[n] += g.pow(2)
         for n in fishers:
             fishers[n] /= sample_size
-        # Save current parameter snapshot
+        
         params = {n: p.clone().detach() for n, p in self.actor.named_parameters()}
         self.ewc_tasks.append({'params': params, 'fishers': fishers})
         self.actor.train()
@@ -207,6 +205,7 @@ def evaluate_agent(agent, env, episodes=5):
 
 
 if __name__ == "__main__":
+    
     failed_joints = [(0, 4), (2, 5)]
     env_list = []
     for joint in failed_joints:

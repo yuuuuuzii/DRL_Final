@@ -51,10 +51,10 @@ def compute_cl_metrics(R_mean: np.ndarray,
                        ) -> dict:
     
     if R_mean.shape != R_std.shape:
-        raise ValueError("R_mean 和 R_std 必须具有相同的形状 (N,N)")
+        raise ValueError("R_mean, R_std ")
     N = R_mean.shape[0]
     if N < 1:
-        raise ValueError("必须至少有一个任务 (N >= 1)")
+        raise ValueError("(N >= 1)")
 
     SEM = R_std / np.sqrt(num_eval_episodes)
     N_float = float(N)
