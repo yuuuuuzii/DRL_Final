@@ -4,47 +4,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-import random
 from collections import deque
 from torch.distributions import Normal
 import os
 import pickle
-import sys
-from gym import Wrapper
-from torch.nn.utils import vector_to_parameters
-import ipdb
-# class Encoder(nn.Module):
-#     def __init__(self, state_dim, action_dim, hidden_dim, latent_dim):
-#         super().__init__()
-#         self.net = nn.Sequential(
-#             nn.Linear(state_dim + action_dim + 1 + state_dim, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, latent_dim),
-#         )
-#     def forward(self, state, action, reward, next_state):
-#         # 這邊假設是reward大小為 [B,], 所以unsqueeze成 [B, 1], 但還要再檢查
-#         # decide whether to unsqueeze reward
-#         if reward.ndim == 1:
-#             reward = reward.unsqueeze(-1)
-#         x = torch.cat([state, action, reward, next_state], dim=-1)
-#         embedding = self.net(x)
-#         return embedding
+import matplotlib.pyplot as plt
+from utils import compute_cl_metrics, JointFailureWrapper, ReplayBuffer
 
-# class Decoder(nn.Module):
-#     def __init__(self, latent_dim, hidden_dim, recon_dim):
-#         super().__init__()
-#         self.net = nn.Sequential(
-#             nn.Linear(latent_dim, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, recon_dim),
-#         )
-#     def forward(self, embedding):
-#         return self.net(embedding)
+# forward
+# TASK_ENCODING_TABLE = torch.tensor([
+#     [1, 0, 0, 0, 1, 0, 0, 0],  # task 0
+#     [0, 1, 0, 0, 0, 1, 0, 0],  # task 1
+#     [0, 0, 1, 0, 0, 0, 1, 0],  # task 2
+# ], dtype=torch.float32)
+
+# reverse
 TASK_ENCODING_TABLE = torch.tensor([
-    [1, 0, 0, 0, 1, 0, 0, 0],  # task 0
+    [0, 0, 1, 0, 0, 0, 1, 0], # task 2
     [0, 1, 0, 0, 0, 1, 0, 0],  # task 1
-    [0, 0, 1, 0, 0, 0, 1, 0],  # task 2
+    [1, 0, 0, 0, 1, 0, 0, 0],   # task 0
 ], dtype=torch.float32)
+
 
 def get_task_encoding(task_id: int, batch_size=None, device='cuda'):
     """取得指定 task_id 對應的 encoding 向量"""
@@ -62,25 +42,25 @@ class HyperNetwork(nn.Module):
         self.trunk = nn.Sequential(
             nn.Linear(latent_dim, trunk_dim),
             nn.ReLU(),
-            nn.Linear(trunk_dim, trunk_dim),
+            nn.Linear(trunk_dim, 2*trunk_dim),
             nn.ReLU(),
         )
 
         # Actor head outputs
-        self.actor_fc1_head     = nn.Linear(trunk_dim, 1152)  # 64 * state_dim + 64 (bias)
-        self.actor_fc2_head     = nn.Linear(trunk_dim, 4160)  # 64 * 64 + 64 (bias)
-        self.actor_mean_head    = nn.Linear(trunk_dim, 390)   # action_dim * 64 + action_dim
-        self.actor_logstd_head  = nn.Linear(trunk_dim, 390)
+        self.actor_fc1_head     = nn.Linear(2*trunk_dim, 1152)  # 64 * state_dim + 64 (bias)
+        self.actor_fc2_head     = nn.Linear(2*trunk_dim, 4160)  # 64 * 64 + 64 (bias)
+        self.actor_mean_head    = nn.Linear(2*trunk_dim, 390)   # action_dim * 64 + action_dim
+        self.actor_logstd_head  = nn.Linear(2*trunk_dim, 390)
 
         # Critic Q1 heads
-        self.critic_q1_fc1_head = nn.Linear(trunk_dim, 1536)  # 64 * (state+action) + 64
-        self.critic_q1_fc2_head = nn.Linear(trunk_dim, 4160)
-        self.critic_q1_fc3_head = nn.Linear(trunk_dim, 65)    # 1 * 64 + 1
+        self.critic_q1_fc1_head = nn.Linear(2*trunk_dim, 1536)  # 64 * (state+action) + 64
+        self.critic_q1_fc2_head = nn.Linear(2*trunk_dim, 4160)
+        self.critic_q1_fc3_head = nn.Linear(2*trunk_dim, 65)    # 1 * 64 + 1
 
         # Critic Q2 heads
-        self.critic_q2_fc1_head = nn.Linear(trunk_dim, 1536)
-        self.critic_q2_fc2_head = nn.Linear(trunk_dim, 4160)
-        self.critic_q2_fc3_head = nn.Linear(trunk_dim, 65)
+        self.critic_q2_fc1_head = nn.Linear(2*trunk_dim, 1536)
+        self.critic_q2_fc2_head = nn.Linear(2*trunk_dim, 4160)
+        self.critic_q2_fc3_head = nn.Linear(2*trunk_dim, 65)
 
     def forward(self, embedding):
         h = self.trunk(embedding)
@@ -99,19 +79,6 @@ class HyperNetwork(nn.Module):
         critic_q2_fc3 = self.critic_q2_fc3_head(h)
 
         return actor_fc1, actor_fc2, actor_mean, actor_log_std, critic_q1_fc1, critic_q1_fc2, critic_q1_fc3, critic_q2_fc1, critic_q2_fc2, critic_q2_fc3
-    
-class JointFailureWrapper(Wrapper):
-    def __init__(self, env, failed_joint):
-        if not hasattr(env, 'reward_range'):
-            env.reward_range = (-np.inf, np.inf)
-        super().__init__(env)
-        self.failed_joint = failed_joint
-
-    def step(self, action):
-        a = np.array(action, copy=True)
-        a[self.failed_joint[0]] = 0.0
-        a[self.failed_joint[1]] = 0.0
-        return self.env.step(a)
 
 def weights_init_(m):
     if isinstance(m, nn.Linear):
@@ -188,33 +155,6 @@ class Critic(nn.Module):
             q2 = self.q_forward(sa, q2_fc1, q2_fc2, q2_fc3)
             return q1, q2
 
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-
-    def add(self, state, action, reward, next_state, done):
-        state = torch.tensor(state, dtype=torch.float32)
-        action = torch.tensor(action, dtype=torch.float32)
-        reward = torch.tensor(reward, dtype=torch.float32)
-        next_state = torch.tensor(next_state, dtype=torch.float32)
-        done = torch.tensor(done, dtype=torch.int32)
-       
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        states = torch.stack(states)
-        actions = torch.stack(actions)
-        rewards = torch.stack(rewards)
-        next_states = torch.stack(next_states)
-        dones = torch.stack(dones)
-
-        return states, actions, rewards, next_states, dones
-    
-    def clear(self):
-        self.buffer.clear()
 
 class SACAgent:
     def __init__(self, state_dim, action_dim, action_space):
@@ -335,11 +275,16 @@ class SACAgent:
     
     def save(self, path_prefix):
         os.makedirs(os.path.dirname(path_prefix), exist_ok=True)
-        torch.save({'actor': self.actor.state_dict(),}, f"{path_prefix}_model.pth")
+        torch.save({
+            'actor':          self.actor.state_dict(),
+            'hypernet':       self.hypernet.state_dict(),
+        }, f"{path_prefix}_model.pth")
 
     def load(self, path_prefix):
         checkpoint = torch.load(f"{path_prefix}_model.pth", map_location=torch.device('cpu'))
         self.actor.load_state_dict(checkpoint['actor'])
+        self.hypernet.load_state_dict(checkpoint['hypernet'])
+
 
 def evaluate_agent(agent, env, task_id, episodes=5):
 
@@ -357,36 +302,39 @@ def evaluate_agent(agent, env, task_id, episodes=5):
             total_reward += reward
         rewards.append(total_reward)
     return np.mean(rewards), np.std(rewards)
-     
+
+
 if __name__ == "__main__":
     
-    target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    failed_joints     = [(2, 5), (0, 4)]
+    failed_joints = [(0, 4), (2, 5)]
     env_list = []
+    for joint in failed_joints:
+        env = gym.make('HalfCheetah-v4')
+        env = JointFailureWrapper(env, failed_joint=joint)
+        name = f'HalfCheetah_joint{joint}'
+        env_list.append((name, env))
     env = gym.make('HalfCheetah-v4')
     env_list.append((f'HalfCheetah_joint_normal', env))
 
-    for joint in failed_joints:
-
-        env = gym.make('HalfCheetah-v4')
-
-        env = JointFailureWrapper(env, failed_joint=joint)
-
-        name = f'HalfCheetah_joint{joint}'
-        env_list.append((name, env))
-
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-  
     agent = SACAgent(state_dim, action_dim, env.action_space)
-    # agent.load(load_path, train=True)
+
+    # for training
     num_episodes = 200
     reward_history = [] 
     warmup_episode = 50
     trained_tasks = []
     task_id = 0
-    for name, env in env_list:
+
+    # for evaluation
+    num_eval_episodes = 5 
+    N = len(env_list)
+    R_mean = np.zeros((N, N), dtype=np.float32)
+    R_std  = np.zeros((N, N), dtype=np.float32)
+
+    for i, (name, env) in enumerate(env_list):
         print(f"Training on failure joint = {name}")
         trained_tasks.append((name, env))
         agent.memory.clear()
@@ -395,7 +343,6 @@ if __name__ == "__main__":
             total_reward = 0
             done = False
 
-            # for _ in range(max_step):
             while not done:
                 if episode <= warmup_episode:
                     action = env.action_space.sample()
@@ -406,25 +353,45 @@ if __name__ == "__main__":
                 done = terminated or truncated
                 agent.memory.add(state, action, reward, next_state, done)
 
-                if episode >  warmup_episode:
+                if episode > warmup_episode:
                     agent.train(task_id)
                     
                 state = next_state
                 total_reward += reward
-                # total_step += 1
 
-            # print(f"Episode {episode + 1} Reward: {total_reward:.2f}")
             reward_history.append(total_reward)
 
             if (episode + 1) % 20 == 0:
-                # torch.save(agent.model.state_dict(), f"checkpoints/sac_{episode+1}.pth")
-                agent.save(f"checkpoints/sac_{episode+1}")
+                ckpt_dir = f"checkpoints/task_{i}"
+                os.makedirs(ckpt_dir, exist_ok=True)
+                agent.save(os.path.join(ckpt_dir, f"sac_hypernet2_task{i}_ep{episode+1}"))
                 avg_reward = np.mean(reward_history[-20:])
                 print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
-
-        print("=== Evaluation across all tasks ===")
-        for id, (test_name, test_env) in enumerate(trained_tasks):
-            mean_r, std_r = evaluate_agent(agent, test_env, id ,episodes=5)
-            print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
         task_id += 1
+
+        print(f"\n  >> Evaluating on all {N} tasks using the policy AFTER Task {i}")
+        for j, (eval_name, eval_env) in enumerate(env_list):
+            mean_r, std_r = evaluate_agent(agent, eval_env, j, episodes=num_eval_episodes)
+            R_mean[i, j] = mean_r
+            R_std[i, j] = std_r
+            print(f"     R[{i},{j}] (mean,std) = ({mean_r:.2f}, {std_r:.2f})")
+        print("\n")
+
+    # evaluate metrics
+    metrics = compute_cl_metrics(R_mean, R_std, num_eval_episodes)
+    print(f"A (mean ± std)   = {metrics['A_mean']:.2f} ± {metrics['A_std']:.2f}")
+    print(f"BWT (mean ± std) = {metrics['BWT_mean']:.2f} ± {metrics['BWT_std']:.2f}")
+
+    # visualize reward
+    with open('reward_history_CL.pkl', 'wb') as f:
+        pickle.dump(reward_history, f)
+    plt.plot(reward_history)
+    plt.xlabel('Episodes')
+    plt.ylabel('Total Reward')
+    plt.title('Training Rewards')
+    plt.vlines(x=200, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 1')
+    plt.vlines(x=400, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 2')
+    plt.vlines(x=600, ymin=min(reward_history), ymax=max(reward_history), colors='r', linestyles='dashed', label='Task 3')
+    plt.legend()
+    plt.savefig(f'Training Reward_CL.png')

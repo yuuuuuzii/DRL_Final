@@ -4,27 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-import random
-from collections import deque
 from torch.distributions import Normal
 import os
-import pickle
-import sys
-from gym import Wrapper
-import ipdb
-
-class JointFailureWrapper(Wrapper):
-    def __init__(self, env, failed_joint):
-        if not hasattr(env, 'reward_range'):
-            env.reward_range = (-np.inf, np.inf)
-        super().__init__(env)
-        self.failed_joint = failed_joint
-
-    def step(self, action):
-        a = np.array(action, copy=True)
-        a[self.failed_joint[0]] = 0.0
-        a[self.failed_joint[1]] = 0.0
-        return self.env.step(a)
+from utils import compute_cl_metrics, JointFailureWrapper, ReplayBuffer
 
 
 def weights_init_(m):
@@ -89,32 +71,6 @@ class Critic(nn.Module):
         sa = torch.cat([state, action], dim=-1).to(torch.float32)
         return self.q1(sa), self.q2(sa)
 
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-
-    def add(self, state, action, reward, next_state, done):
-        state = torch.tensor(state, dtype=torch.float32)
-        action = torch.tensor(action, dtype=torch.float32)
-        reward = torch.tensor(reward, dtype=torch.float32) ## [1, ]
-        next_state = torch.tensor(next_state, dtype=torch.float32)
-        done = torch.tensor(done, dtype=torch.int32)
-       
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        states = torch.stack(states)
-        actions = torch.stack(actions)
-        rewards = torch.stack(rewards) # [B, ]
-        next_states = torch.stack(next_states)
-        dones = torch.stack(dones) # [B, ]
-        return states, actions, rewards, next_states, dones
-    
-    def clear(self):
-        self.buffer.clear()
 
 class SACAgent:
     def __init__(self, state_dim, action_dim, action_space):
@@ -150,9 +106,6 @@ class SACAgent:
         return action.detach().cpu().numpy()[0]
 
     def train(self):
-        # if len(self.memory.buffer) < self.batch_size:
-        #     return
-
         state, action, reward, next_state, done = self.memory.sample(self.batch_size)
         state, action, reward, next_state, done = [x.to(self.device) for x in (state, action, reward, next_state, done)]
 
@@ -211,53 +164,46 @@ def evaluate_agent(agent, env, episodes=5):
             total_reward += reward
         rewards.append(total_reward)
     return np.mean(rewards), np.std(rewards)
-     
+
+ 
 if __name__ == "__main__":
     
-    target_velocities = [0.5, 1.0, 1.5]
     # 要失效的關節索引（HalfCheetah-v2 一共有 6 個 actuator，你可以依序指定 0~5）
-    failed_joints     = [(2, 5), (0, 4)]
+    failed_joints = [(0, 4), (2, 5)]
     env_list = []
     env = gym.make('HalfCheetah-v4')
-    env_list.append((f'HalfCheetah_joint_normal', env))
-
     for joint in failed_joints:
-
         env = gym.make('HalfCheetah-v4')
-
         env = JointFailureWrapper(env, failed_joint=joint)
-
         name = f'HalfCheetah_joint{joint}'
         env_list.append((name, env))
-    # base_env = HalfCheetahVelEnv()
-    # tasks    = base_env.sample_tasks(num_tasks=5)    # 比如取 5 種速度
+    env_list.append((f'HalfCheetah_joint_normal', env))
 
-    # 2) 為每個 task 建立一個 env 實例
-    # envs = []
-    # for task in tasks:
-    #     env = HalfCheetahVelEnv(task)
-    #     env.reset()      # 會設置 _goal_vel
-    #     envs.append((task['velocity'], env))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
-  
     agent = SACAgent(state_dim, action_dim, env.action_space)
-    # agent.load(load_path, train=True)
+
     num_episodes = 200
     reward_history = [] 
     warmup_episode = 50
     trained_tasks = []
 
-    for name, env in env_list:
+    # for evaluation
+    num_eval_episodes = 5 
+    N = len(env_list)
+    R_mean = np.zeros((N, N), dtype=np.float32)
+    R_std  = np.zeros((N, N), dtype=np.float32)
+
+    for i, (name, env) in enumerate(env_list):
         print(f"Training on failure joint = {name}")
         trained_tasks.append((name, env))
+        agent = SACAgent(state_dim, action_dim, env.action_space)
         agent.memory.clear()
         for episode in range(num_episodes):
             state, _ = env.reset()
             total_reward = 0
             done = False
 
-            # for _ in range(max_step):
             while not done:
                 if episode <= warmup_episode:
                     action = env.action_space.sample()
@@ -273,19 +219,25 @@ if __name__ == "__main__":
                     
                 state = next_state
                 total_reward += reward
-                # total_step += 1
 
-            # print(f"Episode {episode + 1} Reward: {total_reward:.2f}")
             reward_history.append(total_reward)
 
             if (episode + 1) % 20 == 0:
-                # torch.save(agent.model.state_dict(), f"checkpoints/sac_{episode+1}.pth")
-                agent.save(f"checkpoints/sac_{episode+1}")
+                ckpt_dir = f"checkpoints/task_{i}"
+                os.makedirs(ckpt_dir, exist_ok=True)
+                agent.save(os.path.join(ckpt_dir, f"sac_continual_task{i}_ep{episode+1}"))
                 avg_reward = np.mean(reward_history[-20:])
                 print(f'"Episode {episode + 1}/{num_episodes}, Total reward: {total_reward:.2f}, joint: {name}')
 
-                if (episode + 1) % 100 == 0:
-                    print("=== Evaluation across all tasks ===")
-                    for test_name, test_env in trained_tasks:
-                        mean_r, std_r = evaluate_agent(agent, test_env, episodes=5)
-                        print(f"Velocity: [{test_name}] avg reward: {mean_r:.2f} ± {std_r:.2f}")
+        print(f"\n  >> Evaluating on all {N} tasks using the policy AFTER Task {i} \n")
+        for j, (eval_name, eval_env) in enumerate(env_list):
+            mean_r, std_r = evaluate_agent(agent, eval_env, episodes=num_eval_episodes)
+            R_mean[i, j] = mean_r
+            R_std[i, j] = std_r
+            print(f"     R[{i},{j}] (mean,std) = ({mean_r:.2f}, {std_r:.2f})")
+        print("\n")
+
+    # evaluate metrics
+    metrics = compute_cl_metrics(R_mean, R_std, num_eval_episodes)
+    print(f"A (mean ± std)   = {metrics['A_mean']:.2f} ± {metrics['A_std']:.2f}")
+    print(f"BWT (mean ± std) = {metrics['BWT_mean']:.2f} ± {metrics['BWT_std']:.2f}")

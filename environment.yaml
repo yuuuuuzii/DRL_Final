@@ -1,4 +1,4 @@
-name: mujoco
+name: hypersac
 channels:
   - pytorch
   - conda-forge
